@@ -62,6 +62,7 @@ export default function App() {
       theme: 'light',
       printerWidth: '80mm',
       autoPrint: false,
+      blockKeyboard: false,
     };
     return saved ? { ...defaultConfig, ...JSON.parse(saved) } : defaultConfig;
   });
@@ -150,7 +151,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
-              className="h-full"
+              className="min-h-full"
             >
               {activeSection === 'dashboard' && (
                 <Dashboard products={products} sales={sales} user={user} theme={systemConfig.theme} />

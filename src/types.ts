@@ -87,6 +87,7 @@ export interface SystemConfig {
   // Printer Settings
   printerWidth?: '58mm' | '80mm' | 'A4';
   autoPrint?: boolean;
+  blockKeyboard?: boolean;
 }
 
 export type Section = 'dashboard' | 'pdv' | 'produtos' | 'clientes' | 'vendas' | 'config' | 'settings';

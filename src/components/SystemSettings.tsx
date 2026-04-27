@@ -55,6 +55,7 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
       email: formData.get('email') as string || undefined,
       printerWidth: formData.get('printerWidth') as '58mm' | '80mm' | 'A4',
       autoPrint: formData.get('autoPrint') === 'on',
+      blockKeyboard: formData.get('blockKeyboard') === 'on',
     };
 
     setConfig(newConfig);
@@ -294,6 +295,19 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
                       />
                       <label htmlFor="autoPrint" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
                         Imprimir comprovante automaticamente após venda
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <input 
+                        type="checkbox" 
+                        name="blockKeyboard" 
+                        id="blockKeyboard"
+                        defaultChecked={config.blockKeyboard}
+                        className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                      />
+                      <label htmlFor="blockKeyboard" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        Bloquear teclado virtual no PDV (Recomendado p/ Leitores)
                       </label>
                     </div>
                   </div>

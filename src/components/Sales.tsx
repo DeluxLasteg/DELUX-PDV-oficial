@@ -111,24 +111,31 @@ export default function Sales({ sales, setSales, products, setProducts, user, co
           ${styles}
           <style>
             @page { margin: 0; size: auto; }
-            body { margin: 0; padding: 0; background: white; }
-            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            body { 
+              margin: 0; 
+              padding: 0; 
+              background: white !important; 
+              -webkit-print-color-adjust: exact !important; 
+              print-color-adjust: exact !important; 
+            }
             #thermal-receipt { 
-              margin: 0 !important; 
-              padding: 5mm !important; 
+              margin: 0 auto !important; 
+              padding: 4mm !important; 
               box-shadow: none !important; 
               border: none !important;
-              width: 100% !important;
-              max-width: none !important;
+              width: ${config.printerWidth === 'A4' ? '100%' : config.printerWidth} !important;
+              max-width: ${config.printerWidth === 'A4' ? '210mm' : config.printerWidth} !important;
               height: auto !important;
               min-height: 0 !important;
               visibility: visible !important;
               display: block !important;
+              position: static !important;
+              overflow: hidden !important;
             }
             .no-print { display: none !important; }
           </style>
         </head>
-        <body>
+        <body onload="setTimeout(() => { window.print(); }, 500)">
           ${receipt.outerHTML}
         </body>
       </html>
@@ -136,12 +143,8 @@ export default function Sales({ sales, setSales, products, setProducts, user, co
     doc.close();
 
     setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 2000);
-    }, 500);
+      document.body.removeChild(iframe);
+    }, 5000);
   };
 
   return (

@@ -36,22 +36,30 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const showToast = useCallback((message: string, type: ToastType = 'success') => {
     const now = Date.now();
     
-    // Deduplication: prevent identical toasts within 500ms
+    // Deduplication: prevent identical toasts within 1500ms
     if (
       lastToastRef.current && 
       lastToastRef.current.message === message && 
-      now - lastToastRef.current.time < 500
+      now - lastToastRef.current.time < 1500
     ) {
       return;
     }
     
     lastToastRef.current = { message, time: now };
-    const id = now + Math.random(); // Ensure unique ID even in same ms
+    const id = now + Math.random(); 
 
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((prev) => {
+      // Limit to 3 most recent toasts
+      const next = [...prev, { id, message, type }];
+      if (next.length > 3) {
+        return next.slice(-3);
+      }
+      return next;
+    });
+
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 5000);
+    }, 4000); // Slightly shorter duration
   }, []);
 
   const removeToast = (id: number) => {

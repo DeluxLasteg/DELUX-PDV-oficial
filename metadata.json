@@ -1,6 +1,6 @@
 {
   "name": "DELUX PDV oficial",
-  "description": "A professional and responsive Point of Sale system for retail management, featuring inventory control, sales reporting, and client management.",
-  "requestFramePermissions": [],
+  "description": "Um sistema de Ponto de Venda profissional e responsivo para gestão de varejo, incluindo controle de inventário, relatórios de vendas e gestão de clientes.",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": []
 }

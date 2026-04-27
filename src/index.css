@@ -19,6 +19,13 @@
   body {
     @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-50 transition-colors duration-300;
   }
+
+  #reader video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    position: relative !important;
+  }
   
   #root {
     @apply bg-white dark:bg-slate-950 min-h-screen transition-colors duration-300;
@@ -47,40 +54,22 @@
 }
 
 @media print {
-  body {
-    background: white !important;
-  }
-  body > *:not(#root) {
-    display: none !important;
-  }
-  #root > *:not(div:has(#thermal-receipt)) {
-    display: none !important;
-  }
-  /* More aggressive hiding */
-  body * {
-    visibility: hidden;
-  }
-  #thermal-receipt, #thermal-receipt * {
-    visibility: visible !important;
-  }
-  #thermal-receipt {
-    visibility: visible !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
-    background: white !important;
-    color: black !important;
-  }
-  .no-print {
-    display: none !important;
-  }
   @page {
     margin: 0;
+    size: auto;
+  }
+  
+  /* Hide main app UI */
+  #root, .no-print {
+    display: none !important;
+  }
+
+  /* Show thermal receipt if it's a direct child of body (iframe case)
+     or handle it specifically if it's inside root (but we hide root, so iframe is preferred) */
+  body > #thermal-receipt {
+    display: block !important;
+    visibility: visible !important;
+    background: white !important;
+    color: black !important;
   }
 }
