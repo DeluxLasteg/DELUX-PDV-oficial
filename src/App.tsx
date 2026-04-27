@@ -60,6 +60,8 @@ export default function App() {
       version: '1.0.0-stable',
       masterKey: 'DELUX-2026',
       theme: 'light',
+      printerWidth: '80mm',
+      autoPrint: false,
     };
     return saved ? { ...defaultConfig, ...JSON.parse(saved) } : defaultConfig;
   });
@@ -162,6 +164,8 @@ export default function App() {
                   setSales={setSales}
                   user={user} 
                   users={users}
+                  config={systemConfig}
+                  setConfig={setSystemConfig}
                 />
               )}
               {activeSection === 'produtos' && (
@@ -186,6 +190,8 @@ export default function App() {
                   products={products}
                   setProducts={setProducts}
                   user={user} 
+                  config={systemConfig}
+                  setConfig={setSystemConfig}
                 />
               )}
               {activeSection === 'config' && user.nivel === 'gerente' && (

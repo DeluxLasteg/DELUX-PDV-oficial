@@ -96,7 +96,7 @@ export default function Dashboard({ products, sales, user, theme = 'light' }: Da
         </div>
       </header>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4" aria-label="Estatísticas rápidas">
+      <section className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4" aria-label="Estatísticas rápidas">
         <StatCard 
           title="Vendas Hoje" 
           value={formatCurrency(stats.todaySales)} 
@@ -270,19 +270,19 @@ function StatCard({ title, value, icon: Icon, color, alert }: { title: string, v
 
   return (
     <div className={cn(
-      "bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl shadow-sm border-b-4 transition-transform hover:-translate-y-1",
+      "bg-white dark:bg-slate-900 p-3 sm:p-5 rounded-2xl sm:rounded-3xl shadow-sm border-b-4 transition-transform hover:-translate-y-1",
       colors[color] || "border-slate-500"
     )}>
-      <div className="flex items-center justify-between mb-3">
-        <div className={cn("p-2 rounded-xl", colors[color])}>
-          <Icon size={20} />
+      <div className="flex items-center justify-between mb-2 sm:mb-3">
+        <div className={cn("p-1.5 sm:p-2 rounded-lg sm:rounded-xl", colors[color])}>
+          <Icon size={18} className="sm:w-5 sm:h-5" />
         </div>
         {alert && (
           <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
         )}
       </div>
-      <p className="text-slate-500 dark:text-slate-400 text-[10px] font-bold uppercase tracking-widest truncate" title={title}>{title}</p>
-      <h3 className="text-2xl font-black mt-1 tracking-tight text-slate-800 dark:text-white">{value}</h3>
+      <p className="text-slate-500 dark:text-slate-400 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest truncate" title={title}>{title}</p>
+      <h3 className="text-xl sm:text-2xl font-black mt-1 tracking-tight text-slate-800 dark:text-white truncate">{value}</h3>
     </div>
   );
 }

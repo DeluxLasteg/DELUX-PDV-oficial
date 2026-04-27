@@ -6,7 +6,7 @@
 import React from 'react';
 import { SystemConfig } from '../types';
 import { useToast } from './ToastContext';
-import { Settings, Save, RefreshCcw, Image as ImageIcon, Type, Info, ShieldAlert, Key, Sun, Moon } from 'lucide-react';
+import { Settings, Save, RefreshCcw, Image as ImageIcon, Type, Info, ShieldAlert, Key, Sun, Moon, Printer } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface SystemSettingsProps {
@@ -43,6 +43,18 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
       logoUrl: formData.get('logoUrl') as string || undefined,
       masterKey: formData.get('masterKey') as string,
       theme: selectedTheme,
+      companyName: formData.get('companyName') as string || undefined,
+      cnpjCpf: formData.get('cnpjCpf') as string || undefined,
+      ieRg: formData.get('ieRg') as string || undefined,
+      address: formData.get('address') as string || undefined,
+      addressNumber: formData.get('addressNumber') as string || undefined,
+      neighborhood: formData.get('neighborhood') as string || undefined,
+      city: formData.get('city') as string || undefined,
+      state: formData.get('state') as string || undefined,
+      phone: formData.get('phone') as string || undefined,
+      email: formData.get('email') as string || undefined,
+      printerWidth: formData.get('printerWidth') as '58mm' | '80mm' | 'A4',
+      autoPrint: formData.get('autoPrint') === 'on',
     };
 
     setConfig(newConfig);
@@ -57,6 +69,8 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
         version: '1.0.0-stable',
         masterKey: 'DELUX-2026',
         theme: 'light',
+        printerWidth: '80mm',
+        autoPrint: false,
       };
       setConfig(defaultConfig);
       setSelectedTheme('light');
@@ -180,6 +194,108 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
                       placeholder="https://..."
                       className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" 
                     />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-8 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 mb-2">
+                  <Info className="text-indigo-600" size={20} />
+                  <h3 className="text-lg font-black text-slate-800 dark:text-white">Dados da Empresa / Emitente</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Razão Social / Nome</label>
+                    <input type="text" name="companyName" defaultValue={config.companyName} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">CNPJ / CPF</label>
+                      <input type="text" name="cnpjCpf" defaultValue={config.cnpjCpf} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">IE / RG</label>
+                      <input type="text" name="ieRg" defaultValue={config.ieRg} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4 col-span-1 md:col-span-2">
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Endereço (Rua/Av)</label>
+                      <input type="text" name="address" defaultValue={config.address} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Nº</label>
+                      <input type="text" name="addressNumber" defaultValue={config.addressNumber} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 col-span-1 md:col-span-2">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Bairro</label>
+                      <input type="text" name="neighborhood" defaultValue={config.neighborhood} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Cidade</label>
+                      <input type="text" name="city" defaultValue={config.city} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Estado (UF)</label>
+                      <input type="text" name="state" defaultValue={config.state} maxLength={2} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white text-center uppercase" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Telefone de Contato</label>
+                    <input type="text" name="phone" defaultValue={config.phone} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Email de Contato</label>
+                    <input type="email" name="email" defaultValue={config.email} className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium text-slate-800 dark:text-white" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-8 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 mb-2">
+                  <Printer className="text-indigo-600" size={20} />
+                  <h3 className="text-lg font-black text-slate-800 dark:text-white">Configuração de Impressão</h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Largura da Bobina (Papel)</label>
+                    <div className="flex gap-4 flex-wrap">
+                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === '58mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
+                        <input type="radio" name="printerWidth" value="58mm" defaultChecked={config.printerWidth === '58mm'} className="hidden" />
+                        <span className="font-bold">58mm</span>
+                      </label>
+                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === '80mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
+                        <input type="radio" name="printerWidth" value="80mm" defaultChecked={config.printerWidth === '80mm'} className="hidden" />
+                        <span className="font-bold">80mm</span>
+                      </label>
+                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === 'A4' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
+                        <input type="radio" name="printerWidth" value="A4" defaultChecked={config.printerWidth === 'A4'} className="hidden" />
+                        <span className="font-bold">A4</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Comportamento</label>
+                    <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <input 
+                        type="checkbox" 
+                        name="autoPrint" 
+                        id="autoPrint"
+                        defaultChecked={config.autoPrint}
+                        className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                      />
+                      <label htmlFor="autoPrint" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                        Imprimir comprovante automaticamente após venda
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>

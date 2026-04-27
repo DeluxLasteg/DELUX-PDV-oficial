@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Product, Client, Sale, SaleItem, User, Payment } from '../types';
+import { Product, Client, Sale, SaleItem, User, Payment, SystemConfig } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { useToast } from './ToastContext';
 import { 
@@ -23,7 +23,8 @@ import {
   XCircle,
   List,
   Printer,
-  Receipt
+  Receipt,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -35,9 +36,11 @@ interface PDVProps {
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>;
   user: User;
   users: User[];
+  config: SystemConfig;
+  setConfig: React.Dispatch<React.SetStateAction<SystemConfig>>;
 }
 
-export default function PDV({ products, setProducts, clients, sales, setSales, user, users }: PDVProps) {
+export default function PDV({ products, setProducts, clients, sales, setSales, user, users, config, setConfig }: PDVProps) {
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<SaleItem[]>(() => {
@@ -53,11 +56,13 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
   const [discount, setDiscount] = useState(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [previewType, setPreviewType] = useState<'sale' | 'quote'>('sale');
   const [showProductList, setShowProductList] = useState(false);
   const [lastSaleChange, setLastSaleChange] = useState(0);
   const [lastSaleSeqId, setLastSaleSeqId] = useState('');
   const [lastCompletedSale, setLastCompletedSale] = useState<Sale | null>(null);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
   const [authPass, setAuthPass] = useState('');
   const [isDiscountAuthorized, setIsDiscountAuthorized] = useState(user.nivel === 'gerente');
 
@@ -206,7 +211,7 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
       id: Date.now(),
       data: now.toLocaleString('pt-BR'),
       dataCurta: now.toLocaleDateString('pt-BR'),
-      clienteId: selectedClient,
+      clienteId: selectedClient ? Number(selectedClient) : "",
       cliente: selectedClient ? (clients.find(c => c.id === Number(selectedClient))?.nome || "Consumidor") : "Consumidor Final",
       forma: paymentSummary,
       pagamentos: payments,
@@ -234,7 +239,17 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     setLastSaleChange(change);
     setLastSaleSeqId(seqId);
     setLastCompletedSale(sale);
+    setPreviewType('sale');
     setShowSuccessModal(true);
+
+    if (config.autoPrint) {
+      setTimeout(() => {
+        setShowReceiptPreview(true);
+        setTimeout(() => {
+          window.print();
+        }, 500);
+      }, 300);
+    }
 
     setCart([]);
     setDiscount(0);
@@ -244,20 +259,115 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     setIsDiscountAuthorized(user.nivel === 'gerente');
   };
 
+  const handlePrintQuote = () => {
+    if (cart.length === 0) {
+      showToast("Adicione itens ao carrinho para gerar um orçamento", "error");
+      return;
+    }
+
+    const now = new Date();
+    const quote: Sale = {
+      seqId: "ORÇAM.",
+      id: Date.now(),
+      data: now.toLocaleString('pt-BR'),
+      dataCurta: now.toLocaleDateString('pt-BR'),
+      clienteId: selectedClient ? Number(selectedClient) : "",
+      cliente: selectedClient ? (clients.find(c => c.id === Number(selectedClient))?.nome || "Consumidor") : "Consumidor Final",
+      forma: "ORÇAMENTO",
+      pagamentos: [],
+      subtotal,
+      desconto: discount,
+      total,
+      lucro: 0,
+      itens: JSON.parse(JSON.stringify(cart)),
+      operador: user.nome
+    };
+
+    setLastSaleChange(0);
+    setLastSaleSeqId("ORÇ.");
+    setLastCompletedSale(quote);
+    setPreviewType('quote');
+    setShowSuccessModal(true);
+  };
+
+  const handleDirectPrint = () => {
+    const receipt = document.getElementById('thermal-receipt');
+    if (!receipt) {
+      showToast("Erro: Cupom não encontrado para impressão.", "error");
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map(s => s.outerHTML)
+      .join('');
+
+    doc.open();
+    doc.write(`
+      <html>
+        <head>
+          <title>Imprimir - ${config.appName}</title>
+          ${styles}
+          <style>
+            @page { margin: 0; size: auto; }
+            body { margin: 0; padding: 0; background: white; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            #thermal-receipt { 
+              margin: 0 !important; 
+              padding: 5mm !important; 
+              box-shadow: none !important; 
+              border: none !important;
+              width: 100% !important;
+              max-width: none !important;
+              height: auto !important;
+              min-height: 0 !important;
+              visibility: visible !important;
+              display: block !important;
+            }
+            .no-print { display: none !important; }
+          </style>
+        </head>
+        <body>
+          ${receipt.outerHTML}
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 2000);
+    }, 500);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-full overflow-hidden">
       {/* Left Column: Search and Cart */}
       <section className="flex-1 flex flex-col gap-6 min-w-0" aria-label="Carrinho de compras">
         {/* Search Bar */}
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 shrink-0 transition-colors">
-          <div className="flex gap-4">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 shrink-0 transition-colors">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <div className="relative group flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
               <input 
                 ref={searchInputRef}
                 type="text" 
-                placeholder="Escaneie o código ou digite o nome do produto..." 
-                className="w-full bg-slate-50 dark:bg-slate-950 border-none p-5 pl-14 rounded-2xl text-lg focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all dark:text-white"
+                placeholder="Escaneie ou digite o nome..." 
+                className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 sm:p-5 pl-12 sm:pl-14 rounded-xl sm:rounded-2xl text-base sm:text-lg focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all dark:text-white"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 aria-label="Buscar produto"
@@ -307,11 +417,11 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
 
             <button 
               onClick={() => setShowProductList(true)}
-              className="bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 p-5 rounded-2xl hover:bg-indigo-100 dark:hover:bg-indigo-950/40 transition-all flex items-center gap-2 font-bold shadow-sm border border-indigo-100 dark:border-indigo-900/30"
+              className="bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 p-4 sm:p-5 rounded-xl sm:rounded-2xl hover:bg-indigo-100 dark:hover:bg-indigo-950/40 transition-all flex items-center justify-center gap-2 font-bold shadow-sm border border-indigo-100 dark:border-indigo-900/30"
               title="Ver todos os produtos"
             >
-              <List size={24} />
-              <span className="hidden sm:inline">Produtos</span>
+              <List size={22} className="sm:w-6 sm:h-6" />
+              <span className="sm:inline">Produtos</span>
             </button>
           </div>
         </div>
@@ -337,16 +447,16 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
             </div>
           </header>
           
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4 custom-scrollbar">
             <AnimatePresence initial={false}>
               {cart.length === 0 ? (
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="h-full flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 py-20"
+                  className="h-full flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 py-10 sm:py-20"
                 >
                   <ShoppingCart size={64} strokeWidth={1} className="mb-4 opacity-20" />
-                  <p className="font-bold uppercase tracking-widest text-xs">Carrinho Vazio</p>
+                  <p className="font-bold uppercase tracking-widest text-[10px] sm:text-xs">Carrinho Vazio</p>
                 </motion.div>
               ) : (
                 cart.map((item) => (
@@ -356,47 +466,60 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 20 }}
-                    className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 flex gap-4 items-center hover:shadow-md transition-all group"
+                    className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center hover:shadow-md transition-all group cursor-pointer"
+                    onClick={() => setSelectedProductForDetail(item)}
                   >
-                    <div className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-700 overflow-hidden shrink-0">
-                      <img src={item.img || 'https://picsum.photos/seed/product/100/100'} alt={item.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate">{item.nome}</h4>
-                      <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">{formatCurrency(item.venda)} / un</p>
-                    </div>
+                    <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+                      <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg sm:rounded-xl bg-slate-100 dark:bg-slate-700 overflow-hidden shrink-0">
+                        <img src={item.img || 'https://picsum.photos/seed/product/100/100'} alt={item.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate text-sm sm:text-base">{item.nome}</h4>
+                        <p className="text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 font-bold">{formatCurrency(item.venda)} / un</p>
+                      </div>
 
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
                       <button 
-                        onClick={() => updateQtd(item.id, -1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:text-red-500 transition-colors dark:text-slate-300"
-                        aria-label="Diminuir quantidade"
+                        onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
+                        className="p-2 text-slate-300 hover:text-red-500 transition-colors sm:hidden"
+                        aria-label="Remover item"
                       >
-                        <Minus size={14} />
-                      </button>
-                      <span className="w-10 text-center font-black text-slate-700 dark:text-slate-200">{item.qtd}</span>
-                      <button 
-                        onClick={() => updateQtd(item.id, 1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:text-indigo-600 transition-colors dark:text-slate-300"
-                        aria-label="Aumentar quantidade"
-                      >
-                        <Plus size={14} />
+                        <Trash2 size={18} />
                       </button>
                     </div>
 
-                    <div className="text-right min-w-[100px]">
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-tighter">Subtotal</p>
-                      <p className="font-black text-slate-800 dark:text-slate-100">{formatCurrency(item.venda * item.qtd)}</p>
+                    <div className="flex items-center justify-between w-full sm:w-auto sm:ml-auto gap-4">
+                      <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                         <button 
+                          onClick={() => updateQtd(item.id, -1)}
+                          className="w-8 h-8 flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:text-red-500 transition-colors dark:text-slate-300"
+                          aria-label="Diminuir quantidade"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 sm:w-10 text-center font-black text-xs sm:text-sm text-slate-700 dark:text-slate-200">{item.qtd}</span>
+                        <button 
+                          onClick={() => updateQtd(item.id, 1)}
+                          className="w-8 h-8 flex items-center justify-center bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:text-indigo-600 transition-colors dark:text-slate-300"
+                          aria-label="Aumentar quantidade"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+  
+                      <div className="text-right min-w-[80px] sm:min-w-[100px]">
+                        <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase font-bold tracking-tighter">Subtotal</p>
+                        <p className="font-black text-sm sm:text-base text-slate-800 dark:text-slate-100">{formatCurrency(item.venda * item.qtd)}</p>
+                      </div>
+  
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); removeFromCart(item.id); }}
+                        className="hidden sm:block p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        aria-label="Remover item"
+                      >
+                        <Trash2 size={20} />
+                      </button>
                     </div>
-
-                    <button 
-                      onClick={() => removeFromCart(item.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                      aria-label="Remover item"
-                    >
-                      <Trash2 size={20} />
-                    </button>
                   </motion.div>
                 ))
               )}
@@ -584,6 +707,21 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
             <span className="relative z-10">FECHAR PEDIDO</span>
             <CheckCircle className="w-5 h-5 relative z-10 group-hover:scale-110 transition-transform" />
           </button>
+
+          <button 
+            onClick={handlePrintQuote}
+            disabled={cart.length === 0}
+            className={cn(
+              "mt-3 w-full py-4 rounded-2xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+              cart.length > 0
+                ? "bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30 border border-indigo-400/30" 
+                : "bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-700/30"
+            )}
+          >
+            <FileText size={18} />
+            <span>IMPRIMIR ORÇAMENTO</span>
+          </button>
+
           <p className="text-center text-indigo-200/50 dark:text-slate-500 text-[9px] mt-3 font-bold tracking-widest uppercase">Atalho: Tecla F2</p>
         </div>
       </aside>
@@ -641,12 +779,16 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           >
             <div className="p-8 text-center bg-white dark:bg-slate-900">
               <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                <CheckCircle size={32} />
+                {previewType === 'sale' ? <CheckCircle size={32} /> : <FileText size={32} />}
               </div>
-              <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">Venda Finalizada!</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Venda #{lastSaleSeqId} concluída com sucesso.</p>
+              <h3 className="text-2xl font-black text-slate-800 dark:text-white mb-2">
+                {previewType === 'sale' ? 'Venda Finalizada!' : 'Orçamento Gerado!'}
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                {previewType === 'sale' ? `Venda #${lastSaleSeqId} concluída com sucesso.` : 'Orçamento pronto para impressão.'}
+              </p>
               
-              {lastSaleChange > 0 && (
+              {previewType === 'sale' && lastSaleChange > 0 && (
                 <div className="bg-slate-50 dark:bg-slate-950 rounded-2xl p-6 mb-8 border border-slate-100 dark:border-slate-800 relative overflow-hidden">
                   <div className="absolute top-0 right-0 p-2 opacity-5">
                     <Banknote size={48} />
@@ -663,18 +805,23 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
                   onClick={() => setShowReceiptPreview(true)}
                   className="w-full py-4 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-2xl font-black hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-all flex items-center justify-center gap-2 border border-indigo-100 dark:border-indigo-900/30"
                 >
-                  <Receipt size={20} />
-                  EMITIR CUPOM
+                  <Printer size={20} />
+                  {previewType === 'sale' ? 'EMITIR CUPOM' : 'IMPRIMIR ORÇAMENTO'}
                 </button>
                 <button 
                   onClick={() => {
                     setShowSuccessModal(false);
                     setLastCompletedSale(null);
+                    if (previewType === 'quote') {
+                      // Don't clear cart if it was just a quote? Or maybe clear it?
+                      // Usually budgets don't clear the cart in some systems, but let's see.
+                      // The previous implementation didn't clear the cart.
+                    }
                   }}
                   className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
                   <Plus size={20} />
-                  NOVA VENDA
+                  {previewType === 'sale' ? 'NOVA VENDA' : 'VOLTAR AO PDV'}
                 </button>
               </div>
             </div>
@@ -771,104 +918,190 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
               exit={{ scale: 0.9, opacity: 0 }}
               className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[95vh] border border-slate-200 dark:border-slate-800"
             >
-              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 shrink-0">
                 <div className="flex items-center gap-3">
-                   <Receipt className="text-indigo-600" />
-                   <h3 className="text-xl font-black text-slate-800 dark:text-white">Cupom de Venda</h3>
+                   {previewType === 'sale' ? <Receipt className="text-indigo-600" /> : <FileText className="text-indigo-600" />}
+                   <h3 className="text-xl font-black text-slate-800 dark:text-white">
+                     {previewType === 'sale' ? 'Cupom de Venda' : 'Orçamento / Proposta'}
+                   </h3>
                 </div>
                 <button 
                   onClick={() => setShowReceiptPreview(false)}
-                  className="p-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400"
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400"
                 >
                   <X size={24} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 bg-slate-100 dark:bg-slate-950 flex justify-center">
-                  {/* The actual "Paper" - Print Friendly Design */}
-                  <div id="thermal-receipt" className="bg-white text-slate-900 w-full max-w-[320px] p-8 shadow-lg font-mono text-[10px] leading-tight border-t-8 border-indigo-600 relative">
-                     <div className="text-center mb-6">
-                        <h4 className="text-xl font-black mb-1">DELUX PDV</h4>
-                        <p className="opacity-70">Avenida das Oliveiras, 1234</p>
-                        <p className="opacity-70">CNPJ: 00.000.000/0001-00</p>
-                        <p className="opacity-70">Telefone: (11) 99999-9999</p>
-                     </div>
-                     
-                     <div className="border-t border-dashed border-slate-300 my-4" />
-                     
-                     <div className="flex justify-between mb-1">
-                        <span>PEDIDO: #{lastCompletedSale.seqId}</span>
-                        <span>OP: {lastCompletedSale.operador}</span>
-                     </div>
-                     <div className="mb-2">
-                        DATA: {lastCompletedSale.data}
-                     </div>
-                     <div className="mb-4 font-bold uppercase truncate">
-                        CLIENTE: {lastCompletedSale.cliente}
-                     </div>
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-white flex flex-col items-center gap-6 custom-scrollbar">
+                {/* Quick Settings Bar */}
+                <div className="w-full max-w-[400px] bg-white dark:bg-slate-900 p-5 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-between no-print mb-2">
+                   <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+                         <Printer size={20} />
+                      </div>
+                      <div>
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Impressora</p>
+                         <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-none">{config.printerWidth}</p>
+                      </div>
+                   </div>
+                   
+                   <div className="flex gap-2">
+                      {['58mm', '80mm', 'A4'].map((w) => (
+                        <button
+                          key={w}
+                          onClick={() => setConfig({ ...config, printerWidth: w as any })}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                            config.printerWidth === w
+                              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {w}
+                        </button>
+                      ))}
+                   </div>
+                </div>
 
-                     <div className="border-t border-dashed border-slate-300 my-4" />
-                     
-                     <div className="space-y-3 mb-6">
-                        <div className="flex justify-between font-bold border-b border-slate-100 pb-1">
-                           <span className="w-12">QTD</span>
-                           <span className="flex-1 px-2">ITEM</span>
-                           <span className="w-20 text-right">TOTAL</span>
-                        </div>
-                        {lastCompletedSale.itens.map((item, i) => (
-                           <div key={i} className="flex justify-between gap-1">
-                              <span className="w-12">{item.qtd}x</span>
-                              <span className="flex-1 px-2 truncate uppercase">{item.nome}</span>
-                              <span className="w-20 text-right">{formatCurrency(item.venda * item.qtd)}</span>
-                           </div>
-                        ))}
-                     </div>
-
-                     <div className="border-t border-dashed border-slate-300 my-4" />
-                     
-                     <div className="space-y-1 text-right">
-                        <div className="flex justify-between">
-                           <span>SUBTOTAL:</span>
-                           <span>{formatCurrency(lastCompletedSale.subtotal)}</span>
-                        </div>
-                        {lastCompletedSale.desconto > 0 && (
-                           <div className="flex justify-between text-slate-600">
-                              <span>DESCONTO:</span>
-                              <span>-{formatCurrency(lastCompletedSale.desconto)}</span>
-                           </div>
+                {/* The actual "Paper" - Print Friendly Design */}
+                <div id="thermal-receipt" 
+                  className="bg-white text-slate-900 w-full shadow-lg font-mono text-[10px] leading-[1.2] border-t-8 border-slate-900 relative p-4 sm:p-8 no-scrollbar transition-all duration-300"
+                  style={{ 
+                    maxWidth: config.printerWidth === '58mm' ? '220px' : config.printerWidth === '80mm' ? '320px' : '800px',
+                    minHeight: '450px'
+                  } as any}
+                >
+                   <div className="text-center mb-6">
+                      <h4 className="text-xl font-black mb-1 uppercase break-words px-2">{config.companyName || config.appName}</h4>
+                      {previewType === 'quote' && <p className="text-[8px] font-black uppercase text-indigo-600 tracking-[0.2em] mb-2 leading-none">ORÇAMENTO / PROPOSTA COMERCIAL</p>}
+                      {config.appSubtitle && <p className="text-[8px] font-bold uppercase mb-1 opacity-60 tracking-wider font-sans">{config.appSubtitle}</p>}
+                      
+                      <div className="space-y-0.5 mt-3 border-t border-slate-100 pt-3">
+                        {config.address && (
+                          <p className="opacity-70 text-[9px] uppercase">{config.address}{config.addressNumber ? `, ${config.addressNumber}` : ''}</p>
                         )}
-                        <div className="flex justify-between text-base font-black pt-2">
-                           <span>TOTAL:</span>
-                           <span>{formatCurrency(lastCompletedSale.total)}</span>
+                        {(config.neighborhood || config.city) && (
+                          <p className="opacity-70 text-[9px] uppercase">{config.neighborhood}{config.city ? ` - ${config.city}` : ''}{config.state ? `/${config.state}` : ''}</p>
+                        )}
+                        <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 mt-1">
+                          {config.cnpjCpf && <p className="opacity-70 text-[9px]">CNPJ/CPF: {config.cnpjCpf}</p>}
+                          {config.ieRg && <p className="opacity-70 text-[9px]">IE/RG: {config.ieRg}</p>}
+                          {config.phone && <p className="opacity-70 text-[9px]">TEL: {config.phone}</p>}
+                          {config.email && <p className="opacity-70 text-[9px]">EMAIL: {config.email}</p>}
                         </div>
-                     </div>
+                      </div>
+                   </div>
+                   
+                   <div className="border-t border-dashed border-slate-300 my-4" />
+                   
+                   <div className="space-y-1 mb-4 uppercase text-[9px]">
+                      <div className="flex justify-between">
+                         <span className="font-bold">PEDIDO:</span>
+                         <span className="font-bold">#{lastCompletedSale.seqId}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold">DATA:</span>
+                         <span>{lastCompletedSale.data}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold shrink-0">CLIENTE:</span>
+                         <span className="truncate ml-2">{lastCompletedSale.cliente}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold">VENDEDOR:</span>
+                         <span className="truncate ml-2">{lastCompletedSale.operador}</span>
+                      </div>
+                   </div>
 
-                     <div className="border-t border-dashed border-slate-300 my-4" />
-                     
-                     <div className="space-y-1 mb-6">
-                        <p className="font-bold">PAGAMENTO:</p>
-                        {lastCompletedSale.pagamentos.map((p, i) => (
-                          <div key={i} className="flex justify-between text-[9px]">
-                             <span className="uppercase">{p.metodo} {p.parcelas ? `(${p.parcelas}X)` : ''}</span>
-                             <span>{formatCurrency(p.valor)}</span>
-                          </div>
-                        ))}
-                     </div>
+                   <div className="border-t border-dashed border-slate-300 my-4" />
+                   
+                   <table className="w-full text-[9px] mb-4">
+                      <thead>
+                         <tr className="border-b border-slate-900">
+                            <th className="text-left py-1 font-black w-8">QTD</th>
+                            <th className="text-left py-1 font-black px-2">ITEM</th>
+                            <th className="text-right py-1 font-black w-20">TOTAL</th>
+                         </tr>
+                      </thead>
+                      <tbody>
+                         {lastCompletedSale.itens.map((item, i) => (
+                            <tr key={i} className="border-b border-slate-50 last:border-0">
+                               <td className="py-2 align-top">{item.qtd}x</td>
+                               <td className="py-2 px-2 align-top break-words max-w-[100px] uppercase font-medium">{item.nome}</td>
+                               <td className="py-2 text-right align-top whitespace-nowrap">{formatCurrency(item.venda * item.qtd)}</td>
+                            </tr>
+                         ))}
+                      </tbody>
+                   </table>
 
-                     <div className="text-center mt-10 space-y-4">
-                        <div className="flex flex-col items-center gap-1">
-                          <p className="font-bold italic">Obrigado pela preferência!</p>
-                          <p className="text-[8px] uppercase">www.deluxpdv.com.br</p>
-                        </div>
-                        <div className="flex justify-center opacity-70">
+                   <div className="space-y-1.5 text-[11px] mt-2">
+                      <div className="flex justify-between">
+                         <span>{previewType === 'sale' ? 'SUBTOTAL' : 'VALOR BRUTO'}:</span>
+                         <span>{formatCurrency(lastCompletedSale.subtotal)}</span>
+                      </div>
+                      {lastCompletedSale.desconto > 0 && (
+                         <div className="flex justify-between font-bold">
+                            <span>DESCONTO:</span>
+                            <span>-{formatCurrency(lastCompletedSale.desconto)}</span>
+                         </div>
+                      )}
+                      <div className="flex justify-between text-lg font-black border-t-2 border-slate-900 pt-2 mt-2">
+                         <span>{previewType === 'sale' ? 'TOTAL' : 'TOTAL ESTIMADO'}:</span>
+                         <span>{formatCurrency(lastCompletedSale.total)}</span>
+                      </div>
+                   </div>
+
+                   {previewType === 'sale' ? (
+                     <>
+                       <div className="border-t border-dashed border-slate-300 my-4" />
+                       
+                       <div className="space-y-1 mb-6 text-[9px]">
+                          <p className="font-black mb-2 flex items-center gap-1 uppercase border-b border-slate-100 pb-1">
+                            Pagamento
+                          </p>
+                          {lastCompletedSale.pagamentos.map((p, i) => (
+                            <div key={i} className="flex justify-between uppercase">
+                               <span>{p.metodo} {p.parcelas ? `(${p.parcelas}X)` : ''}</span>
+                               <span>{formatCurrency(p.valor)}</span>
+                            </div>
+                          ))}
+                       </div>
+                     </>
+                   ) : (
+                     <div className="mt-6 border border-slate-200 p-4 text-center text-[8px] italic leading-tight uppercase opacity-70">
+                       Este documento não é um comprovante de venda e não possui valor fiscal. 
+                       Preços sujeitos a alteração sem aviso prévio.
+                     </div>
+                   )}
+
+                   <div className="text-center mt-10 space-y-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <p className="font-black italic text-xs">Obrigado pela preferência!</p>
+                        <p className="text-[8px] uppercase tracking-widest opacity-60">Sempre com você</p>
+                      </div>
+                      
+                      {previewType === 'sale' && (
+                        <div className="flex justify-center opacity-70 p-3 bg-slate-50 rounded-2xl mx-auto w-fit">
                            <QrCode size={48} strokeWidth={1} />
                         </div>
-                        <p className="text-[7px] opacity-50 uppercase tracking-widest">Consulte sua nota física ou no site oficial</p>
-                     </div>
-                  </div>
+                      )}
+                      
+                      <div className="space-y-1">
+                        {previewType === 'sale' && (
+                          <p className="text-[7px] opacity-40 uppercase tracking-widest leading-normal mb-1">
+                            Consulte sua nota física ou no site oficial
+                          </p>
+                        )}
+                        <p className="text-[7px] opacity-20 font-black tracking-tighter uppercase">
+                          SISTEMA {config.appName.toUpperCase()} v{config.version} - LICENCIADO
+                        </p>
+                      </div>
+                   </div>
+                </div>
               </div>
 
-              <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col sm:flex-row gap-3 shrink-0">
+              <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row gap-3 shrink-0">
                 <button 
                   onClick={() => setShowReceiptPreview(false)}
                   className="flex-1 py-4 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700"
@@ -876,15 +1109,103 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
                   Voltar
                 </button>
                 <button 
-                  onClick={() => {
-                    window.print();
-                    showToast("Comando de impressão enviado!", "info");
-                  }}
+                  onClick={handleDirectPrint}
                   className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
                 >
                   <Printer size={20} />
-                  IMPRIMIR CUPOM
+                  {previewType === 'sale' ? 'IMPRIMIR CUPOM' : 'IMPRIMIR ORÇAMENTO'}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Product Detail Modal */}
+      <AnimatePresence>
+        {selectedProductForDetail && (
+          <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[300] flex items-center justify-center p-4 md:p-8">
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 rounded-[3rem] w-full max-w-4xl shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] border border-slate-200 dark:border-slate-800"
+            >
+              <div className="w-full md:w-1/2 h-64 md:h-auto bg-slate-100 dark:bg-slate-800 relative">
+                <img 
+                  src={selectedProductForDetail.img || `https://picsum.photos/seed/${selectedProductForDetail.id}/800/600`} 
+                  alt={selectedProductForDetail.nome} 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <button 
+                  onClick={() => setSelectedProductForDetail(null)}
+                  className="absolute top-6 left-6 p-3 bg-white/20 hover:bg-white/40 backdrop-blur-md text-white rounded-2xl transition-all md:hidden"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 p-8 md:p-12 overflow-y-auto custom-scrollbar flex flex-col bg-white dark:bg-slate-900">
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.2em] mb-2 block">
+                      {selectedProductForDetail.cat}
+                    </span>
+                    <h3 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-white leading-tight">
+                      {selectedProductForDetail.nome}
+                    </h3>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedProductForDetail(null)}
+                    className="hidden md:flex p-3 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-all text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                  >
+                    <X size={28} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 mb-8">
+                  <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Preço de Venda</p>
+                    <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{formatCurrency(selectedProductForDetail.venda)}</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Estoque</p>
+                    <p className={cn(
+                      "text-2xl font-black",
+                      selectedProductForDetail.estoque <= selectedProductForDetail.estoqueMinimo ? "text-red-500" : "text-emerald-500"
+                    )}>
+                      {selectedProductForDetail.estoque} <small className="text-xs text-slate-400">un</small>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                     Especificações Técnicas
+                  </h4>
+                  <div className="bg-slate-50 dark:bg-slate-950 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 min-h-[150px]">
+                    {selectedProductForDetail.specs ? (
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-medium">
+                        {selectedProductForDetail.specs}
+                      </p>
+                    ) : (
+                      <p className="text-slate-400 italic font-medium">
+                        Nenhuma especificação cadastrada para este item.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-8 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <p className="text-[10px] font-mono text-slate-400 dark:text-slate-500">COD: {selectedProductForDetail.barcode || 'N/A'}</p>
+                  <button 
+                    onClick={() => setSelectedProductForDetail(null)}
+                    className="px-10 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl font-bold hover:bg-slate-800 dark:hover:bg-slate-700 transition-all active:scale-95 shadow-xl shadow-slate-900/20"
+                  >
+                    Fechar Detalhes
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

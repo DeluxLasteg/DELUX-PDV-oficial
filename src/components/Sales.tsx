@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Sale, Product, User } from '../types';
+import { Sale, Product, User, SystemConfig } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { useToast } from './ToastContext';
 import { 
@@ -19,7 +19,8 @@ import {
   Filter,
   Download,
   X,
-  AlertTriangle
+  AlertTriangle,
+  QrCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -29,13 +30,17 @@ interface SalesProps {
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   user: User;
+  config: SystemConfig;
+  setConfig: React.Dispatch<React.SetStateAction<SystemConfig>>;
 }
 
-export default function Sales({ sales, setSales, products, setProducts, user }: SalesProps) {
+export default function Sales({ sales, setSales, products, setProducts, user, config, setConfig }: SalesProps) {
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedSale, setExpandedSale] = useState<number | null>(null);
   const [saleToRefund, setSaleToRefund] = useState<Sale | null>(null);
+  const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+  const [selectedSaleForPreview, setSelectedSaleForPreview] = useState<Sale | null>(null);
 
   const filteredSales = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -71,94 +76,72 @@ export default function Sales({ sales, setSales, products, setProducts, user }: 
   };
 
   const handlePrint = (sale: Sale) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      showToast('Erro ao abrir janela de impressão. Verifique se o bloqueador de popups está ativo.', 'error');
+    setSelectedSaleForPreview(sale);
+    setShowReceiptPreview(true);
+  };
+
+  const handleDirectPrint = () => {
+    const receipt = document.getElementById('thermal-receipt');
+    if (!receipt) {
+      showToast("Erro: Cupom não encontrado para impressão.", "error");
       return;
     }
 
-    const itemsHtml = sale.itens.map(item => `
-      <tr>
-        <td style="padding: 5px 0;">${item.nome}</td>
-        <td style="text-align: center;">${item.qtd}</td>
-        <td style="text-align: right;">${formatCurrency(item.venda * item.qtd)}</td>
-      </tr>
-    `).join('');
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
 
-    printWindow.document.write(`
+    const doc = iframe.contentWindow?.document;
+    if (!doc) return;
+
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map(s => s.outerHTML)
+      .join('');
+
+    doc.open();
+    doc.write(`
       <html>
         <head>
-          <title>Cupom de Venda #${sale.seqId}</title>
+          <title>Imprimir - ${config.appName}</title>
+          ${styles}
           <style>
-            body { font-family: 'Courier New', Courier, monospace; width: 80mm; margin: 0 auto; padding: 10px; color: #000; }
-            .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-            .footer { text-align: center; border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; font-size: 14px; }
-            .total-row { font-weight: bold; border-top: 1px solid #000; }
-            .text-right { text-align: right; }
-            .text-center { text-align: center; }
+            @page { margin: 0; size: auto; }
+            body { margin: 0; padding: 0; background: white; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            #thermal-receipt { 
+              margin: 0 !important; 
+              padding: 5mm !important; 
+              box-shadow: none !important; 
+              border: none !important;
+              width: 100% !important;
+              max-width: none !important;
+              height: auto !important;
+              min-height: 0 !important;
+              visibility: visible !important;
+              display: block !important;
+            }
+            .no-print { display: none !important; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h2 style="margin: 0;">DELUX PDV</h2>
-            <p style="margin: 5px 0;">Venda #${sale.seqId}</p>
-            <p style="margin: 0; font-size: 12px;">Data: ${sale.data}</p>
-          </div>
-          <table>
-            <thead>
-              <tr style="border-bottom: 1px solid #000;">
-                <th style="text-align: left;">Item</th>
-                <th>Qtd</th>
-                <th style="text-align: right;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-          <div style="margin-top: 10px; font-size: 14px;">
-            <div style="display: flex; justify-content: space-between;">
-              <span>Subtotal:</span>
-              <span>${formatCurrency(sale.subtotal)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between;">
-              <span>Desconto:</span>
-              <span>-${formatCurrency(sale.desconto)}</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-top: 5px;">
-              <span>TOTAL:</span>
-              <span>${formatCurrency(sale.total)}</span>
-            </div>
-          </div>
-          <div style="margin-top: 10px; font-size: 12px;">
-            <p style="margin: 2px 0;">Cliente: ${sale.cliente}</p>
-            <div style="margin: 5px 0;">
-              <p style="margin: 0 0 2px 0; font-weight: bold;">Pagamentos:</p>
-              ${sale.pagamentos ? sale.pagamentos.map(p => `
-                <div style="display: flex; justify-content: space-between;">
-                  <span>${p.metodo} ${p.parcelas ? `${p.parcelas}x` : ''}</span>
-                  <span>${formatCurrency(p.valor)}</span>
-                </div>
-              `).join('') : `<span>${sale.forma}</span>`}
-            </div>
-            <p style="margin: 2px 0;">Operador: ${sale.operador}</p>
-          </div>
-          <div class="footer">
-            <p>Obrigado pela preferência!</p>
-            <p>www.deluxpdv.com.br</p>
-          </div>
-          <script>
-            window.onload = () => {
-              window.print();
-              setTimeout(() => window.close(), 500);
-            };
-          </script>
+          ${receipt.outerHTML}
         </body>
       </html>
     `);
-    printWindow.document.close();
-    showToast(`Preparando impressão da venda #${sale.seqId}`, 'info');
+    doc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 2000);
+    }, 500);
   };
 
   return (
@@ -388,6 +371,205 @@ export default function Sales({ sales, setSales, products, setProducts, user }: 
                     Confirmar Estorno
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Receipt Preview Modal */}
+      <AnimatePresence>
+        {showReceiptPreview && selectedSaleForPreview && (
+          <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-xl z-[300] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[95vh] border border-slate-200 dark:border-slate-800"
+            >
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 shrink-0">
+                <div className="flex items-center gap-3">
+                   <ShoppingBag className="text-indigo-600" />
+                   <h3 className="text-xl font-black text-slate-800 dark:text-white">Reimpressão de Cupom</h3>
+                </div>
+                <button 
+                  onClick={() => setShowReceiptPreview(false)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-400"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-white flex flex-col items-center gap-6 custom-scrollbar">
+                {/* Quick Settings Bar */}
+                <div className="w-full max-w-[400px] bg-white dark:bg-slate-900 p-5 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-between no-print mb-2">
+                   <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+                         <Printer size={20} />
+                      </div>
+                      <div>
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Impressora</p>
+                         <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-none">{config.printerWidth}</p>
+                      </div>
+                   </div>
+                   
+                   <div className="flex gap-2">
+                      {['58mm', '80mm', 'A4'].map((w) => (
+                        <button
+                          key={w}
+                          onClick={() => setConfig({ ...config, printerWidth: w as any })}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                            config.printerWidth === w
+                              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          {w}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+
+                <div id="thermal-receipt" 
+                  className="bg-white text-slate-900 w-full shadow-lg font-mono text-[10px] leading-[1.2] border-t-8 border-slate-900 relative p-4 sm:p-8 no-scrollbar transition-all duration-300"
+                  style={{ 
+                    maxWidth: config.printerWidth === '58mm' ? '220px' : config.printerWidth === '80mm' ? '320px' : '800px',
+                    minHeight: '450px'
+                  } as any}
+                >
+                   <div className="text-center mb-6">
+                      <h4 className="text-xl font-black mb-1 uppercase break-words px-2">{config.companyName || config.appName}</h4>
+                      {config.appSubtitle && <p className="text-[8px] font-bold uppercase mb-1 opacity-60 tracking-wider font-sans">{config.appSubtitle}</p>}
+                      
+                      <div className="space-y-0.5 mt-3 border-t border-slate-100 pt-3">
+                        {config.address && (
+                          <p className="opacity-70 text-[9px] uppercase">{config.address}{config.addressNumber ? `, ${config.addressNumber}` : ''}</p>
+                        )}
+                        {(config.neighborhood || config.city) && (
+                          <p className="opacity-70 text-[9px] uppercase">{config.neighborhood}{config.city ? ` - ${config.city}` : ''}{config.state ? `/${config.state}` : ''}</p>
+                        )}
+                        <div className="flex flex-wrap justify-center gap-x-2 gap-y-0.5 mt-1">
+                          {config.cnpjCpf && <p className="opacity-70 text-[9px]">CNPJ/CPF: {config.cnpjCpf}</p>}
+                          {config.ieRg && <p className="opacity-70 text-[9px]">IE/RG: {config.ieRg}</p>}
+                          {config.phone && <p className="opacity-70 text-[9px]">TEL: {config.phone}</p>}
+                          {config.email && <p className="opacity-70 text-[9px]">EMAIL: {config.email}</p>}
+                        </div>
+                      </div>
+                   </div>
+                   
+                   <div className="border-t border-dashed border-slate-300 my-4" />
+                   
+                   <div className="space-y-1 mb-4 uppercase text-[9px]">
+                      <div className="flex justify-between">
+                         <span className="font-bold">PEDIDO:</span>
+                         <span className="font-bold">#{selectedSaleForPreview.seqId}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold">DATA:</span>
+                         <span>{selectedSaleForPreview.data}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold shrink-0">CLIENTE:</span>
+                         <span className="truncate ml-2">{selectedSaleForPreview.cliente}</span>
+                      </div>
+                      <div className="flex justify-between">
+                         <span className="font-bold">VENDEDOR:</span>
+                         <span className="truncate ml-2">{selectedSaleForPreview.operador}</span>
+                      </div>
+                   </div>
+
+                   <div className="border-t border-dashed border-slate-300 my-4" />
+                   
+                   <table className="w-full text-[9px] mb-4">
+                      <thead>
+                         <tr className="border-b border-slate-900">
+                            <th className="text-left py-1 font-black w-8">QTD</th>
+                            <th className="text-left py-1 font-black px-2">ITEM</th>
+                            <th className="text-right py-1 font-black w-20">TOTAL</th>
+                         </tr>
+                      </thead>
+                      <tbody>
+                         {selectedSaleForPreview.itens.map((item, i) => (
+                            <tr key={i} className="border-b border-slate-50 last:border-0">
+                               <td className="py-2 align-top">{item.qtd}x</td>
+                               <td className="py-2 px-2 align-top break-words max-w-[100px] uppercase font-medium">{item.nome}</td>
+                               <td className="py-2 text-right align-top whitespace-nowrap">{formatCurrency(item.venda * item.qtd)}</td>
+                            </tr>
+                         ))}
+                      </tbody>
+                   </table>
+
+                   <div className="space-y-1.5 text-[11px] mt-2">
+                      <div className="flex justify-between">
+                         <span>SUBTOTAL:</span>
+                         <span>{formatCurrency(selectedSaleForPreview.subtotal)}</span>
+                      </div>
+                      {selectedSaleForPreview.desconto > 0 && (
+                         <div className="flex justify-between font-bold">
+                            <span>DESCONTO:</span>
+                            <span>-{formatCurrency(selectedSaleForPreview.desconto)}</span>
+                         </div>
+                      )}
+                      <div className="flex justify-between text-lg font-black border-t-2 border-slate-900 pt-2 mt-2">
+                         <span>TOTAL:</span>
+                         <span>{formatCurrency(selectedSaleForPreview.total)}</span>
+                      </div>
+                   </div>
+
+                   <div className="border-t border-dashed border-slate-300 my-4" />
+                   
+                   <div className="space-y-1 mb-6 text-[9px]">
+                      <p className="font-black mb-2 flex items-center gap-1 uppercase border-b border-slate-100 pb-1">
+                        Pagamento
+                      </p>
+                      {selectedSaleForPreview.pagamentos ? selectedSaleForPreview.pagamentos.map((p, i) => (
+                        <div key={i} className="flex justify-between uppercase">
+                           <span>{p.metodo} {p.parcelas ? `(${p.parcelas}X)` : ''}</span>
+                           <span>{formatCurrency(p.valor)}</span>
+                        </div>
+                      )) : (
+                        <div className="flex justify-between uppercase">
+                           <span>{selectedSaleForPreview.forma}</span>
+                           <span>{formatCurrency(selectedSaleForPreview.total)}</span>
+                        </div>
+                      )}
+                   </div>
+
+                   <div className="text-center mt-10 space-y-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <p className="font-black italic text-xs">Obrigado pela preferência!</p>
+                        <p className="text-[8px] uppercase tracking-widest opacity-60">Sempre com você</p>
+                      </div>
+                      <div className="flex justify-center opacity-70 p-3 bg-slate-50 rounded-2xl mx-auto w-fit">
+                         <QrCode size={48} strokeWidth={1} />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[7px] opacity-40 uppercase tracking-widest leading-normal mb-1">
+                          Consulte sua nota física ou no site oficial
+                        </p>
+                        <p className="text-[7px] opacity-20 font-black tracking-tighter uppercase">
+                          SISTEMA {config.appName.toUpperCase()} v{config.version} - LICENCIADO
+                        </p>
+                      </div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row gap-3 shrink-0">
+                <button 
+                  onClick={() => setShowReceiptPreview(false)}
+                  className="flex-1 py-4 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold hover:bg-slate-100 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700"
+                >
+                  Voltar
+                </button>
+                <button 
+                  onClick={handleDirectPrint}
+                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <Printer size={20} />
+                  IMPRIMIR CUPOM
+                </button>
               </div>
             </motion.div>
           </div>

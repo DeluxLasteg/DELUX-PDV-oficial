@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, ShoppingCart, Package, Users, Receipt, Settings, LogOut, Gem, ChevronLeft, ChevronRight, X, Info, Sliders } from 'lucide-react';
 import { Section, User, SystemConfig } from '../types';
 import { cn } from '../lib/utils';
@@ -24,6 +24,14 @@ interface SidebarProps {
 
 export default function Sidebar({ activeSection, setActiveSection, collapsed, setCollapsed, isMobileOpen, setIsMobileOpen, user, onLogout, onShowDetails, config }: SidebarProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const checkDesktop = () => setIsDesktop(window.innerWidth >= 768);
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
   
   const navItems = [
     { id: 'dashboard', label: 'Painel', icon: LayoutDashboard, managerOnly: false },
@@ -94,7 +102,19 @@ export default function Sidebar({ activeSection, setActiveSection, collapsed, se
           </button>
         </div>
 
-        <nav className="mt-4 flex-1 overflow-y-auto custom-scrollbar px-3 space-y-1">
+        <motion.nav 
+          initial={false}
+          animate={(isMobileOpen || isDesktop) ? "open" : "closed"}
+          variants={{
+            open: {
+              transition: { staggerChildren: 0.04, delayChildren: 0.1 }
+            },
+            closed: {
+              transition: { staggerChildren: 0.02, staggerDirection: -1 }
+            }
+          }}
+          className="mt-4 flex-1 overflow-y-auto custom-scrollbar px-3 space-y-1"
+        >
           {navItems.map((item) => {
             if (item.managerOnly && user.nivel !== 'gerente') return null;
             
@@ -102,22 +122,49 @@ export default function Sidebar({ activeSection, setActiveSection, collapsed, se
             const Icon = item.icon;
 
             return (
-              <button
+              <motion.button
+                variants={{
+                  open: { 
+                    x: 0, 
+                    opacity: 1,
+                    transition: { type: "spring", stiffness: 400, damping: 30 } 
+                  },
+                  closed: { 
+                    x: -20, 
+                    opacity: 0,
+                    transition: { type: "spring", stiffness: 400, damping: 30 } 
+                  }
+                }}
+                whileTap={{ scale: 0.96, x: 4 }}
                 key={item.id}
-                onClick={() => setActiveSection(item.id as Section)}
+                onClick={() => {
+                  setActiveSection(item.id as Section);
+                  // Optional: auto-close on mobile after selection
+                  if (window.innerWidth < 768) {
+                    setTimeout(() => setIsMobileOpen(false), 200);
+                  }
+                }}
                 className={cn(
                   "w-full flex items-center px-3 py-3 rounded-xl transition-all group relative",
                   isActive 
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20" 
+                    ? "text-white" 
                     : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 hover:text-indigo-600 dark:hover:text-white",
                   !isMobileOpen && collapsed && !isHovered ? "justify-center" : "justify-start gap-3"
                 )}
                 title={!isMobileOpen && collapsed && !isHovered ? item.label : undefined}
               >
-                <Icon size={22} className={cn("shrink-0", isActive ? "text-white" : "group-hover:text-indigo-600 dark:group-hover:text-indigo-400")} />
+                {isActive && (
+                  <motion.div
+                    layoutId="active-nav-indicator"
+                    className="absolute inset-0 bg-indigo-600 rounded-xl z-[0] shadow-lg shadow-indigo-600/20"
+                    transition={{ type: "spring", bounce: 0.25, duration: 0.5 }}
+                  />
+                )}
+
+                <Icon size={22} className={cn("shrink-0 relative z-10", isActive ? "text-white" : "group-hover:text-indigo-600 dark:group-hover:text-indigo-400")} />
                 
                 {(!collapsed || isMobileOpen || isHovered) && (
-                  <span className={cn("font-medium whitespace-nowrap overflow-hidden transition-all duration-300", isActive ? "text-white" : "text-slate-600 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-white")}>
+                  <span className={cn("font-medium whitespace-nowrap overflow-hidden transition-all duration-300 relative z-10", isActive ? "text-white" : "text-slate-600 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-white")}>
                     {item.label}
                   </span>
                 )}
@@ -127,13 +174,14 @@ export default function Sidebar({ activeSection, setActiveSection, collapsed, se
                     {item.label}
                   </div>
                 )}
-              </button>
+              </motion.button>
             );
           })}
-        </nav>
+        </motion.nav>
 
         <div className="p-4 border-t border-slate-100 dark:border-slate-900 space-y-2 shrink-0">
-          <button 
+          <motion.button 
+            whileTap={{ scale: 0.96 }}
             onClick={onShowDetails}
             className={cn(
               "w-full flex items-center px-3 py-3 rounded-xl transition-all text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-700 dark:hover:text-indigo-300 group relative",
@@ -147,9 +195,10 @@ export default function Sidebar({ activeSection, setActiveSection, collapsed, se
                 Detalhes do Sistema
               </div>
             )}
-          </button>
+          </motion.button>
 
-          <button 
+          <motion.button 
+            whileTap={{ scale: 0.96 }}
             onClick={onLogout}
             className={cn(
               "w-full flex items-center px-3 py-3 rounded-xl transition-all text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-300 group relative",
@@ -163,7 +212,7 @@ export default function Sidebar({ activeSection, setActiveSection, collapsed, se
                 Sair
               </div>
             )}
-          </button>
+          </motion.button>
         </div>
       </aside>
     </>

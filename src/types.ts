@@ -31,6 +31,12 @@ export interface Client {
   nome: string;
   fone: string;
   email?: string;
+  rua?: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  obs?: string;
 }
 
 export interface SaleItem extends Product {
@@ -67,6 +73,20 @@ export interface SystemConfig {
   logoUrl?: string;
   masterKey: string;
   theme: 'light' | 'dark';
+  // Company Data
+  companyName?: string;
+  cnpjCpf?: string;
+  ieRg?: string;
+  address?: string;
+  addressNumber?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  phone?: string;
+  email?: string;
+  // Printer Settings
+  printerWidth?: '58mm' | '80mm' | 'A4';
+  autoPrint?: boolean;
 }
 
 export type Section = 'dashboard' | 'pdv' | 'produtos' | 'clientes' | 'vendas' | 'config' | 'settings';

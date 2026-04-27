@@ -127,13 +127,13 @@ export default function Inventory({ products, setProducts, user }: InventoryProp
         )}
       </header>
 
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors flex items-center gap-4">
+      <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
         <div className="relative group flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
           <input 
             type="text" 
-            placeholder="Filtrar por nome, categoria ou código de barras..." 
-            className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 pl-12 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all dark:text-white"
+            placeholder="Filtrar produtos..." 
+            className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 pl-12 rounded-xl sm:rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all dark:text-white"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             aria-label="Filtrar produtos"

@@ -15,8 +15,10 @@ import {
   User as UserIcon,
   Phone,
   Mail,
+  MapPin,
   X,
-  ShoppingBag
+  ShoppingBag,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -53,6 +55,12 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
       nome: formData.get('nome') as string,
       fone: formData.get('fone') as string,
       email: formData.get('email') as string || undefined,
+      rua: formData.get('rua') as string || undefined,
+      numero: formData.get('numero') as string || undefined,
+      bairro: formData.get('bairro') as string || undefined,
+      cidade: formData.get('cidade') as string || undefined,
+      estado: formData.get('estado') as string || undefined,
+      obs: formData.get('obs') as string || undefined,
     };
 
     if (editingClient) {
@@ -66,7 +74,7 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
   };
 
   const handleDelete = (id: number) => {
-    const hasSales = sales.some(s => s.clienteId === id);
+    const hasSales = sales.some(s => Number(s.clienteId) === Number(id));
     if (hasSales) {
       setErrorMessage("Não é possível excluir este cliente pois ele possui vendas vinculadas.");
       return;
@@ -84,7 +92,7 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
 
   const clientHistory = useMemo(() => {
     if (!historyClient) return [];
-    return sales.filter(s => s.clienteId === historyClient.id).reverse();
+    return sales.filter(s => Number(s.clienteId) === Number(historyClient.id)).reverse();
   }, [historyClient, sales]);
 
   return (
@@ -174,6 +182,23 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
                       <span className="font-medium truncate">{client.email}</span>
                     </div>
                   )}
+                  {(client.rua || client.cidade) && (
+                    <div className="flex items-start gap-2 text-slate-500 dark:text-slate-400 text-sm">
+                      <MapPin size={14} className="text-slate-400 mt-0.5 shrink-0" />
+                      <span className="font-medium line-clamp-2">
+                        {client.rua}{client.numero ? `, ${client.numero}` : ''}
+                        {client.bairro ? ` - ${client.bairro}` : ''}
+                        {(client.rua || client.bairro) && client.cidade ? ' | ' : ''}
+                        {client.cidade}{client.estado ? `/${client.estado}` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {client.obs && (
+                    <div className="flex items-start gap-2 text-slate-500 dark:text-slate-400 text-sm italic">
+                      <FileText size={14} className="text-slate-400 mt-1 shrink-0" />
+                      <span className="line-clamp-2">{client.obs}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -181,7 +206,7 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
                 <div className="flex flex-col">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Total Compras</span>
                   <span className="text-sm font-black text-slate-800 dark:text-slate-200">
-                    {sales.filter(s => s.clienteId === client.id).length} pedidos
+                    {sales.filter(s => Number(s.clienteId) === Number(client.id)).length} pedidos
                   </span>
                 </div>
                 <button 
@@ -219,7 +244,7 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
               </button>
             </div>
             
-            <div className="p-8 bg-white dark:bg-slate-900">
+            <div className="p-8 bg-white dark:bg-slate-900 overflow-y-auto custom-scrollbar max-h-[60vh]">
               <form id="clientForm" onSubmit={handleSave} className="space-y-6">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome Completo</label>
@@ -245,13 +270,82 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
                 </div>
                 
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Email</label>
-                  <input 
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Email</label>
+                   <input 
                     type="email" 
                     name="email" 
                     defaultValue={editingClient?.email} 
                     placeholder="email@exemplo.com"
                     className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                  />
+                </div>
+
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="col-span-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Rua</label>
+                    <input 
+                      type="text" 
+                      name="rua" 
+                      defaultValue={editingClient?.rua} 
+                      placeholder="Nome da rua"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nº</label>
+                    <input 
+                      type="text" 
+                      name="numero" 
+                      defaultValue={editingClient?.numero} 
+                      placeholder="00"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Bairro</label>
+                  <input 
+                    type="text" 
+                    name="bairro" 
+                    defaultValue={editingClient?.bairro} 
+                    placeholder="Nome do bairro"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Cidade</label>
+                    <input 
+                      type="text" 
+                      name="cidade" 
+                      defaultValue={editingClient?.cidade} 
+                      placeholder="Cidade"
+                      className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Estado</label>
+                    <input 
+                      type="text" 
+                      name="estado" 
+                      defaultValue={editingClient?.estado} 
+                      placeholder="UF"
+                      maxLength={2}
+                      className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white text-center uppercase" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Observações</label>
+                  <textarea 
+                    name="obs" 
+                    defaultValue={editingClient?.obs} 
+                    placeholder="Notas adicionais sobre o cliente..."
+                    rows={3}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white resize-none" 
                   />
                 </div>
               </form>
@@ -317,11 +411,20 @@ export default function Clients({ clients, setClients, sales, user }: ClientsPro
                         <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">{sale.forma}</p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-3">
                       {sale.itens.map((item, i) => (
-                        <span key={i} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300">
-                          {item.qtd}x {item.nome}
-                        </span>
+                        <div key={i} className="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-slate-50 dark:bg-slate-900 rounded-lg flex items-center justify-center text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                              {item.qtd}x
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{item.nome}</p>
+                              <p className="text-[10px] text-slate-400">{formatCurrency(item.venda)} / un</p>
+                            </div>
+                          </div>
+                          <p className="text-sm font-black text-slate-800 dark:text-slate-100">{formatCurrency(item.venda * item.qtd)}</p>
+                        </div>
                       ))}
                     </div>
                   </div>
