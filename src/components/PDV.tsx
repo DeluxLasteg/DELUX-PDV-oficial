@@ -109,10 +109,14 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
-        scannerRef.current = null;
-      } catch (err) {
-        console.error("Erro ao parar scanner:", err);
+      } catch (err: any) {
+        // Catch and ignore if it says it's already stopped or not running
+        const msg = err?.message || String(err);
+        if (!msg.includes("scanner is not running") && !msg.includes("not running")) {
+          console.error("Erro ao parar scanner:", err);
+        }
       }
+      scannerRef.current = null;
     }
     setIsScanning(false);
     setIsScannerFullscreen(false);
@@ -124,7 +128,8 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     setIsTorchOn(false);
   };
 
-  const startScanner = async () => {
+  const startScanner = async (fullscreenOverride?: boolean) => {
+    const isFull = fullscreenOverride !== undefined ? fullscreenOverride : isScannerFullscreen;
     setIsScanning(true);
     lastScannedCode.current = null;
     lastScannedTime.current = 0;
@@ -145,19 +150,24 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
         const config = {
           fps: 30, // Higher FPS for better tracking
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            // More focused box for small barcodes
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const width = Math.floor(viewfinderWidth * 0.75); 
-            const height = Math.floor(minEdge * 0.35); 
+            // Adaptive box based on mode - ensuring minimum of 50px to avoid Html5Qrcode error
+            if (isFull) {
+              const width = Math.max(50, Math.floor(viewfinderWidth * 0.75)); 
+              const height = Math.max(50, Math.floor(viewfinderHeight * 0.5)); 
+              return { width, height };
+            }
+            // Very wide and short box for barcodes in small view
+            const width = Math.max(100, Math.floor(viewfinderWidth * 0.85)); 
+            const height = Math.max(50, Math.floor(Math.min(viewfinderHeight * 0.3, 100))); 
             return { width, height };
           },
-          aspectRatio: window.innerWidth < 768 ? 1.0 : 1.777778,
+          aspectRatio: isFull ? 0.75 : 1.777778,
           disableFlip: false,
           videoConstraints: {
-            facingMode: { exact: "environment" },
-            // Ultra-wide/high res for detail
-            width: { min: 1280, ideal: 1920, max: 2560 },
-            height: { min: 720, ideal: 1080, max: 1440 },
+            // Loosening constraints to avoid OverconstrainedError
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
@@ -335,21 +345,25 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
       return;
     }
 
-    const existing = cart.find(item => item.id === product.id);
-    
-    if (existing) {
-      if (existing.qtd < product.estoque) {
-        setCart(prev => prev.map(item => 
-          item.id === product.id ? { ...item, qtd: item.qtd + 1 } : item
-        ));
-        showToast(`+1 ${product.nome} adicionado`, "info");
+    setCart(prev => {
+      const existingIndex = prev.findIndex(item => item.id === product.id);
+      
+      if (existingIndex !== -1) {
+        const existing = prev[existingIndex];
+        if (existing.qtd < product.estoque) {
+          setTimeout(() => showToast(`+1 ${product.nome} adicionado`, "info"), 0);
+          const newCart = [...prev];
+          newCart[existingIndex] = { ...existing, qtd: existing.qtd + 1 };
+          return newCart;
+        } else {
+          setTimeout(() => showToast("Limite de estoque atingido!", "warning"), 0);
+          return prev;
+        }
       } else {
-        showToast("Limite de estoque atingido!", "warning");
+        setTimeout(() => showToast(`${product.nome} adicionado ao carrinho`, "success"), 0);
+        return [...prev, { ...product, qtd: 1 }];
       }
-    } else {
-      setCart(prev => [...prev, { ...product, qtd: 1 }]);
-      showToast(`${product.nome} adicionado ao carrinho`, "success");
-    }
+    });
 
     if (origin === 'input') {
       setSearchTerm('');
@@ -567,13 +581,24 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     }, 5000);
   };
 
+  const toggleScannerFullscreen = async () => {
+    const nextState = !isScannerFullscreen;
+    if (isScanning) {
+      await stopScanner();
+      setIsScannerFullscreen(nextState);
+      startScanner(nextState);
+    } else {
+      setIsScannerFullscreen(nextState);
+    }
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 lg:h-full lg:overflow-hidden">
       {/* Left Column: Search and Cart */}
       <section className="flex-1 flex flex-col gap-6 min-w-0" aria-label="Carrinho de compras">
         {/* Search Bar */}
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 shrink-0 transition-colors">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <div className="flex flex-col gap-3 sm:gap-4">
             <div className="relative group flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
               <input 
@@ -629,169 +654,169 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
               </AnimatePresence>
             </div>
 
-            <button 
-              onClick={() => isScanning ? stopScanner() : startScanner()}
-              className="bg-indigo-600 text-white p-4 sm:p-5 rounded-xl sm:rounded-2xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-indigo-500/20 active:scale-95 border border-indigo-500"
-              title="Escanear Código de Barras"
-            >
-              <Camera size={22} className="sm:w-6 sm:h-6" />
-              <span className="hidden sm:inline">Escanear</span>
-            </button>
+            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row">
+              <button 
+                onClick={() => isScanning ? stopScanner() : startScanner()}
+                className="bg-indigo-600 text-white p-3 sm:p-5 rounded-xl sm:rounded-2xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 font-bold shadow-lg shadow-indigo-500/20 active:scale-95 border border-indigo-500"
+                title="Escanear Código de Barras"
+              >
+                <Camera size={20} className="sm:w-6 sm:h-6" />
+                <span className="text-sm sm:text-base">Escanear</span>
+              </button>
 
-            <button 
-              onClick={() => setShowProductList(true)}
-              className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 p-4 sm:p-5 rounded-xl sm:rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2 font-bold shadow-sm border border-slate-200 dark:border-slate-700"
-              title="Ver todos os produtos"
-            >
-              <List size={22} className="sm:w-6 sm:h-6" />
-              <span className="hidden sm:inline">Produtos</span>
-            </button>
+              <button 
+                onClick={() => setShowProductList(true)}
+                className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 p-3 sm:p-5 rounded-xl sm:rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2 font-bold shadow-sm border border-slate-200 dark:border-slate-700"
+                title="Ver todos os produtos"
+              >
+                <List size={20} className="sm:w-6 sm:h-6" />
+                <span className="text-sm sm:text-base">Produtos</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Mobile FAB Scanner */}
-        {!isScanning && (
-          <motion.button
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            onClick={startScanner}
-            className="fixed bottom-6 right-6 z-40 w-16 h-16 bg-indigo-600 text-white rounded-2xl shadow-[0_10px_30px_rgba(79,70,229,0.4)] flex items-center justify-center active:scale-90 transition-transform sm:hidden border border-indigo-400/50 backdrop-blur-sm"
-          >
-            <Camera size={28} />
-          </motion.button>
-        )}
+        {/* Mobile FAB Scanner Removed for cleaner UI and to avoid duplication */}
 
         {/* Cart List */}
         <div className="flex-1 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden transition-colors">
-          <header className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center">
+          <header className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center text-xs">
             <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> 
-              Itens no Carrinho ({cart.length})
+              <ShoppingCart className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> 
+              Carrinho ({cart.length})
             </h3>
             <button 
               onClick={() => setCart([])}
-              className="text-xs font-bold text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1"
+              className="font-bold text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1"
             >
               <Trash2 size={14} />
               Limpar
             </button>
           </header>
+
+          <AnimatePresence>
+            {isScanning && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ 
+                  opacity: 1, 
+                  height: isScannerFullscreen ? '100vh' : 'auto',
+                  position: isScannerFullscreen ? 'fixed' : 'relative',
+                  top: isScannerFullscreen ? 0 : 'auto',
+                  left: isScannerFullscreen ? 0 : 'auto',
+                  width: isScannerFullscreen ? '100vw' : '100%',
+                  zIndex: isScannerFullscreen ? 50 : 0
+                }}
+                exit={{ opacity: 0, height: 0 }}
+                className={`${isScannerFullscreen ? 'bg-slate-950 p-0' : 'overflow-hidden border-b border-slate-200 dark:border-slate-800'}`}
+              >
+                <div className={`${isScannerFullscreen ? 'h-[100dvh] w-screen rounded-none flex items-center justify-center' : 'bg-slate-900 h-44 sm:h-56'} overflow-hidden relative shadow-inner`}>
+                  <div id="reader" className="w-full h-full bg-black flex items-center justify-center"></div>
+                  
+                  {/* Viewfinder Overlay - Thinner for Barcodes */}
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+                    <motion.div 
+                      animate={{ 
+                        borderColor: scanFlash ? '#22c55e' : '#6366f1',
+                        scale: scanFlash ? 1.05 : 1,
+                        filter: scanFlash ? 'brightness(1.2)' : 'brightness(1)'
+                      }}
+                      className={cn(
+                        "border-2 rounded-xl relative overflow-hidden transition-all duration-150 shadow-[0_0_0_2000px_rgba(0,0,0,0.6)]",
+                        isScannerFullscreen ? "w-[75%] max-w-[400px] aspect-[3/4]" : "w-[90%] max-w-[600px] aspect-[4/1]"
+                      )}
+                    >
+                      <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,1)]"></div>
+                      
+                      {/* Vertical line for "vertical" scanning vision */}
+                      {isScannerFullscreen && (
+                        <div className="absolute left-1/2 top-0 h-full w-0.5 bg-red-500/30 animate-pulse"></div>
+                      )}
+                      
+                      {/* Success semi-transparent overlay */}
+                      <AnimatePresence>
+                        {scanFlash && (
+                          <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 0.4 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-green-500"
+                          />
+                        )}
+                      </AnimatePresence>
+
+                      {/* Corner Accents - Smaller */}
+                      <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white"></div>
+                      <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white"></div>
+                      <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white"></div>
+                      <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white"></div>
+                    </motion.div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="absolute top-4 left-4 z-20 flex flex-col gap-3 scale-90">
+                    <button 
+                      onClick={toggleScannerFullscreen}
+                      className="bg-black/20 text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-black/40"
+                      title={isScannerFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+                    >
+                      {isScannerFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                    </button>
+
+                    {hasTorch && (
+                      <button 
+                        onClick={toggleTorch}
+                        className={`${isTorchOn ? 'bg-yellow-500/80' : 'bg-black/20'} text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:opacity-80`}
+                        title={isTorchOn ? "Desligar lanterna" : "Ligar lanterna"}
+                      >
+                        <Zap size={18} fill={isTorchOn ? "currentColor" : "none"} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="absolute top-4 right-4 z-20 scale-90">
+                    <button 
+                      onClick={stopScanner}
+                      className="bg-red-500/80 text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-red-600"
+                      title="Fechar camera"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* Zoom Slider - Simplified and smaller */}
+                  {zoomRange.max > zoomRange.min && (
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-12 w-[50%] max-w-[200px] z-20 bg-black/40 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 flex flex-col gap-1.5 scale-90">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[9px] text-white/60 font-bold">ZOOM</span>
+                        <span className="text-[9px] text-indigo-400 font-bold">{currentZoom.toFixed(1)}x</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Minus size={12} className="text-white/40" />
+                        <input 
+                          type="range"
+                          min={zoomRange.min}
+                          max={zoomRange.max}
+                          step={0.1}
+                          value={currentZoom}
+                          onChange={(e) => handleZoomChange(Number(e.target.value))}
+                          className="flex-1 accent-indigo-500 h-1 rounded-lg appearance-none cursor-pointer bg-white/10"
+                        />
+                        <Plus size={12} className="text-white/40" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/30 backdrop-blur-md text-white px-4 py-1.5 rounded-full text-[8px] sm:text-[10px] font-black tracking-[0.2em] flex items-center gap-2 shadow-xl border border-white/5 z-10 uppercase">
+                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping"></div>
+                    Alinhe o código de barras
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4 custom-scrollbar">
-            <AnimatePresence>
-              {isScanning && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ 
-                    opacity: 1, 
-                    height: isScannerFullscreen ? '100vh' : 'auto',
-                    position: isScannerFullscreen ? 'fixed' : 'relative',
-                    top: isScannerFullscreen ? 0 : 'auto',
-                    left: isScannerFullscreen ? 0 : 'auto',
-                    width: isScannerFullscreen ? '100vw' : '100%',
-                    zIndex: isScannerFullscreen ? 50 : 0
-                  }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className={`${isScannerFullscreen ? 'bg-slate-950 p-0' : 'overflow-hidden'}`}
-                >
-                  <div className={`${isScannerFullscreen ? 'h-[100dvh] w-screen rounded-none flex items-center justify-center' : 'bg-slate-900 rounded-3xl border-2 border-indigo-500/50 shadow-2xl shadow-indigo-500/10 mb-6 min-h-[300px] sm:min-h-[400px]'} overflow-hidden relative`}>
-                    <div id="reader" className="w-full h-full bg-black flex items-center justify-center"></div>
-                    
-                    {/* Viewfinder Overlay - Improved centering */}
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-                      <motion.div 
-                        animate={{ 
-                          borderColor: scanFlash ? '#22c55e' : '#6366f1',
-                          scale: scanFlash ? 1.05 : 1,
-                          filter: scanFlash ? 'brightness(1.2)' : 'brightness(1)'
-                        }}
-                        className="w-[85%] max-w-[500px] aspect-[2/1] border-2 rounded-2xl relative overflow-hidden transition-all duration-150 shadow-[0_0_0_2000px_rgba(0,0,0,0.6)]"
-                      >
-                        <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,1)]"></div>
-                        
-                        {/* Success semi-transparent overlay */}
-                        <AnimatePresence>
-                          {scanFlash && (
-                            <motion.div 
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 0.4 }}
-                              exit={{ opacity: 0 }}
-                              className="absolute inset-0 bg-green-500"
-                            />
-                          )}
-                        </AnimatePresence>
-
-                        {/* Corner Accents */}
-                        <div className="absolute -top-1 -left-1 w-10 h-10 border-t-4 border-l-4 border-white"></div>
-                        <div className="absolute -top-1 -right-1 w-10 h-10 border-t-4 border-r-4 border-white"></div>
-                        <div className="absolute -bottom-1 -left-1 w-10 h-10 border-b-4 border-l-4 border-white"></div>
-                        <div className="absolute -bottom-1 -right-1 w-10 h-10 border-b-4 border-r-4 border-white"></div>
-                      </motion.div>
-                    </div>
-
-                    {/* Controls */}
-                    <div className="absolute top-4 left-4 z-20 flex flex-col gap-3">
-                      <button 
-                        onClick={() => setIsScannerFullscreen(!isScannerFullscreen)}
-                        className="bg-black/20 text-white p-3 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-black/40"
-                        title={isScannerFullscreen ? "Sair da tela cheia" : "Tela cheia"}
-                      >
-                        {isScannerFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-                      </button>
-
-                      {hasTorch && (
-                        <button 
-                          onClick={toggleTorch}
-                          className={`${isTorchOn ? 'bg-yellow-500/80' : 'bg-black/20'} text-white p-3 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:opacity-80`}
-                          title={isTorchOn ? "Desligar lanterna" : "Ligar lanterna"}
-                        >
-                          <Zap size={20} fill={isTorchOn ? "currentColor" : "none"} />
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="absolute top-4 right-4 z-20">
-                      <button 
-                        onClick={stopScanner}
-                        className="bg-red-500/80 text-white p-3 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-red-600"
-                        title="Fechar camera"
-                      >
-                        <X size={20} />
-                      </button>
-                    </div>
-
-                    {/* Zoom Slider */}
-                    {zoomRange.max > zoomRange.min && (
-                      <div className="absolute left-1/2 -translate-x-1/2 bottom-20 w-[60%] max-w-[250px] z-20 bg-black/40 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/10 flex flex-col gap-2">
-                        <div className="flex justify-between items-center px-1">
-                          <span className="text-[10px] text-white/60 font-bold">ZOOM</span>
-                          <span className="text-[10px] text-indigo-400 font-bold">{currentZoom.toFixed(1)}x</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Minus size={14} className="text-white/40" />
-                          <input 
-                            type="range"
-                            min={zoomRange.min}
-                            max={zoomRange.max}
-                            step={0.1}
-                            value={currentZoom}
-                            onChange={(e) => handleZoomChange(Number(e.target.value))}
-                            className="flex-1 accent-indigo-500 h-1 rounded-lg appearance-none cursor-pointer bg-white/10"
-                          />
-                          <Plus size={14} className="text-white/40" />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/30 backdrop-blur-md text-white px-5 py-2 rounded-full text-[9px] sm:text-xs font-black tracking-[0.2em] flex items-center gap-2 shadow-xl border border-white/5 z-10 uppercase">
-                      <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping"></div>
-                      Aponte p/ o código
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
             <AnimatePresence initial={false}>
               {cart.length === 0 ? (
                 <motion.div 

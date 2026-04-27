@@ -17,10 +17,15 @@ interface SystemSettingsProps {
 export default function SystemSettings({ config, setConfig }: SystemSettingsProps) {
   const { showToast } = useToast();
   const [selectedTheme, setSelectedTheme] = React.useState<'light' | 'dark'>(config.theme || 'light');
+  const [selectedPrinterWidth, setSelectedPrinterWidth] = React.useState<'58mm' | '80mm' | 'A4'>(config.printerWidth || '80mm');
 
   React.useEffect(() => {
     setSelectedTheme(config.theme || 'light');
   }, [config.theme]);
+
+  React.useEffect(() => {
+    setSelectedPrinterWidth(config.printerWidth || '80mm');
+  }, [config.printerWidth]);
 
   const handleThemeChange = (newTheme: 'light' | 'dark') => {
     setSelectedTheme(newTheme);
@@ -29,7 +34,10 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
     } else {
       document.documentElement.classList.remove('dark');
     }
-    setConfig(prev => ({ ...prev, theme: newTheme }));
+  };
+
+  const handlePrinterWidthChange = (width: '58mm' | '80mm' | 'A4') => {
+    setSelectedPrinterWidth(width);
   };
 
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
@@ -53,7 +61,7 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
       state: formData.get('state') as string || undefined,
       phone: formData.get('phone') as string || undefined,
       email: formData.get('email') as string || undefined,
-      printerWidth: formData.get('printerWidth') as '58mm' | '80mm' | 'A4',
+      printerWidth: selectedPrinterWidth,
       autoPrint: formData.get('autoPrint') === 'on',
       blockKeyboard: formData.get('blockKeyboard') === 'on',
     };
@@ -75,6 +83,7 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
       };
       setConfig(defaultConfig);
       setSelectedTheme('light');
+      setSelectedPrinterWidth('80mm');
       document.documentElement.classList.remove('dark');
     }
   };
@@ -268,18 +277,27 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
                   <div className="space-y-4">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Largura da Bobina (Papel)</label>
                     <div className="flex gap-4 flex-wrap">
-                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === '58mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
-                        <input type="radio" name="printerWidth" value="58mm" defaultChecked={config.printerWidth === '58mm'} className="hidden" />
+                      <button
+                        type="button"
+                        onClick={() => handlePrinterWidthChange('58mm')}
+                        className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 transition-all ${selectedPrinterWidth === '58mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 shadow-lg shadow-indigo-600/10' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500 hover:border-slate-200'}`}
+                      >
                         <span className="font-bold">58mm</span>
-                      </label>
-                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === '80mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
-                        <input type="radio" name="printerWidth" value="80mm" defaultChecked={config.printerWidth === '80mm'} className="hidden" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePrinterWidthChange('80mm')}
+                        className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 transition-all ${selectedPrinterWidth === '80mm' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 shadow-lg shadow-indigo-600/10' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500 hover:border-slate-200'}`}
+                      >
                         <span className="font-bold">80mm</span>
-                      </label>
-                      <label className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${config.printerWidth === 'A4' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500'}`}>
-                        <input type="radio" name="printerWidth" value="A4" defaultChecked={config.printerWidth === 'A4'} className="hidden" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePrinterWidthChange('A4')}
+                        className={`flex-1 min-w-[80px] flex items-center justify-center p-4 rounded-2xl border-2 transition-all ${selectedPrinterWidth === 'A4' ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 shadow-lg shadow-indigo-600/10' : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-500 hover:border-slate-200'}`}
+                      >
                         <span className="font-bold">A4</span>
-                      </label>
+                      </button>
                     </div>
                   </div>
 
