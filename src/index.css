@@ -26,6 +26,20 @@
     object-fit: cover !important;
     position: relative !important;
   }
+
+  /* Remove default white scanner corners and region styling from Html5Qrcode library */
+  #reader__scan_region {
+    border: none !important;
+  }
+  
+  #reader__scan_region > div,
+  #reader__scan_region svg {
+    display: none !important;
+  }
+  
+  #reader__dashboard {
+    display: none !important;
+  }
   
   #root {
     @apply bg-white dark:bg-slate-950 min-h-screen transition-colors duration-300;

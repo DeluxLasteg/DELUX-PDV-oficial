@@ -78,6 +78,8 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
   const [isTorchOn, setIsTorchOn] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const startTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isStartingRef = useRef(false);
   const lastScannedCode = useRef<string | null>(null);
   const lastScannedTime = useRef<number>(0);
   const lastGlobalScanTime = useRef<number>(0);
@@ -106,19 +108,46 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
   };
 
   const stopScanner = async () => {
+    // Cancela qualquer início pendente
+    if (startTimeoutRef.current) {
+      clearTimeout(startTimeoutRef.current);
+      startTimeoutRef.current = null;
+    }
+
     if (scannerRef.current) {
       try {
-        await scannerRef.current.stop();
+        const state = scannerRef.current.getState();
+        // 1: IDLE/STOPPED, 2: SCANNING, 3: PAISED
+        if (state > 1) {
+          await scannerRef.current.stop();
+        }
       } catch (err: any) {
-        // Catch and ignore if it says it's already stopped or not running
         const msg = err?.message || String(err);
-        if (!msg.includes("scanner is not running") && !msg.includes("not running")) {
+        // Ignora erros conhecidos e inofensivos de cleanup/lifecycle
+        const isBenign = 
+          msg.includes("scanner is not running") || 
+          msg.includes("not running") ||
+          msg.includes("removeChild") ||
+          msg.includes("interrupted") ||
+          msg.includes("media was removed");
+          
+        if (!isBenign) {
           console.error("Erro ao parar scanner:", err);
         }
       }
+      
+      try {
+        // Tentativa de limpeza adicional se o stop não foi suficiente
+        if (typeof (scannerRef.current as any).clear === 'function') {
+          await (scannerRef.current as any).clear();
+        }
+      } catch (e) {}
+      
       scannerRef.current = null;
     }
+
     setIsScanning(false);
+    isStartingRef.current = false;
     setIsScannerFullscreen(false);
     lastScannedCode.current = null;
     setScanFlash(false);
@@ -129,8 +158,12 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
   };
 
   const startScanner = async (fullscreenOverride?: boolean) => {
+    // Evita múltiplos inícios simultâneos
+    if (isStartingRef.current || scannerRef.current) return;
+
     const isFull = fullscreenOverride !== undefined ? fullscreenOverride : isScannerFullscreen;
     setIsScanning(true);
+    isStartingRef.current = true;
     lastScannedCode.current = null;
     lastScannedTime.current = 0;
     lastGlobalScanTime.current = 0;
@@ -141,30 +174,46 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     setHasTorch(false);
     setIsTorchOn(false);
     
-    // Use a slightly longer timeout to ensure DOM and layout are ready
-    setTimeout(async () => {
+    if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+    
+    // Timeout para garantir que o DOM (div #reader) esteja pronto após setIsScanning(true)
+    startTimeoutRef.current = setTimeout(async () => {
       try {
+        const element = document.getElementById("reader");
+        if (!element) {
+          isStartingRef.current = false;
+          return;
+        }
+
         const scanner = new Html5Qrcode("reader");
         scannerRef.current = scanner;
         
         const config = {
-          fps: 30, // Higher FPS for better tracking
+          fps: 30,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            // Adaptive box based on mode - ensuring minimum of 50px to avoid Html5Qrcode error
             if (isFull) {
-              const width = Math.max(50, Math.floor(viewfinderWidth * 0.75)); 
-              const height = Math.max(50, Math.floor(viewfinderHeight * 0.5)); 
+              const width = Math.max(50, Math.floor(viewfinderWidth * 0.9)); 
+              const height = Math.max(50, Math.floor(viewfinderHeight * 0.45)); 
               return { width, height };
             }
-            // Very wide and short box for barcodes in small view
-            const width = Math.max(100, Math.floor(viewfinderWidth * 0.85)); 
-            const height = Math.max(50, Math.floor(Math.min(viewfinderHeight * 0.3, 100))); 
-            return { width, height };
+            // Small view mode: Ensure box is strictly smaller than viewfinder
+            // and at least 50px as required by the library
+            const minSize = 50;
+            const horizontalMargin = 10;
+            const verticalMargin = 10;
+            
+            const width = Math.max(minSize, Math.floor(viewfinderWidth * 0.95)); 
+            const height = Math.max(minSize, Math.floor(Math.min(viewfinderHeight * 0.5, 100))); 
+            
+            // Final safety check to prevent "qrbox greater than root" error
+            const safeWidth = Math.max(minSize, Math.min(width, viewfinderWidth - horizontalMargin));
+            const safeHeight = Math.max(minSize, Math.min(height, viewfinderHeight - verticalMargin));
+            
+            return { width: safeWidth, height: safeHeight };
           },
-          aspectRatio: isFull ? 0.75 : 1.777778,
+          aspectRatio: isFull ? 0.75 : undefined, // Allow the camera to fill the small container naturally
           disableFlip: false,
           videoConstraints: {
-            // Loosening constraints to avoid OverconstrainedError
             facingMode: "environment",
             width: { ideal: 1280 },
             height: { ideal: 720 },
@@ -179,16 +228,8 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           config,
           (decodedText) => {
             const now = Date.now();
-            
-            // Global cooldown: ignore ANY scan result within 800ms of the previous one
-            if ((now - lastGlobalScanTime.current) < 800) {
-              return;
-            }
-
-            // Specific debounce for same code: 2.5 seconds
-            if (decodedText === lastScannedCode.current && (now - lastScannedTime.current) < 2500) {
-              return;
-            }
+            if ((now - lastGlobalScanTime.current) < 800) return;
+            if (decodedText === lastScannedCode.current && (now - lastScannedTime.current) < 2500) return;
 
             lastScannedCode.current = decodedText;
             lastScannedTime.current = now;
@@ -201,7 +242,6 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
               setTimeout(() => setScanFlash(false), 300);
               addToCart(product, 'scanner');
             } else {
-              // Throttle any "not registered" message of any code to once per 3s
               if (decodedText.length >= 4 && (now - lastNotFoundTime.current) > 3000) {
                 lastNotFoundTime.current = now;
                 showToast(`Código ${decodedText} não cadastrado`, "warning");
@@ -211,29 +251,25 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           () => {}
         );
 
-        // Access capabilities for zoom after start
         setTimeout(async () => {
           try {
-            const track = (scanner as any).getRunningTrack();
-            if (track) {
-              const capabilities = track.getCapabilities() as any;
-              if (capabilities.zoom) {
-                setZoomRange({
-                  min: capabilities.zoom.min || 1,
-                  max: capabilities.zoom.max || 1
-                });
-                
-                // Auto-apply a slight zoom (1.5x or midway) if supported to help with small codes
-                const initialZoom = Math.min(1.5, capabilities.zoom.max || 1);
-                if (initialZoom > (capabilities.zoom.min || 1)) {
-                  handleZoomChange(initialZoom);
-                } else {
-                  setCurrentZoom(capabilities.zoom.min || 1);
+            if (scannerRef.current) {
+              const track = (scannerRef.current as any).getRunningTrack();
+              if (track) {
+                const capabilities = track.getCapabilities() as any;
+                if (capabilities.zoom) {
+                  setZoomRange({
+                    min: capabilities.zoom.min || 1,
+                    max: capabilities.zoom.max || 1
+                  });
+                  const initialZoom = Math.min(1.5, capabilities.zoom.max || 1);
+                  if (initialZoom > (capabilities.zoom.min || 1)) {
+                    handleZoomChange(initialZoom);
+                  } else {
+                    setCurrentZoom(capabilities.zoom.min || 1);
+                  }
                 }
-              }
-
-              if (capabilities.torch) {
-                setHasTorch(true);
+                if (capabilities.torch) setHasTorch(true);
               }
             }
           } catch (err) {
@@ -245,6 +281,9 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
         console.error("Erro ao iniciar scanner:", err);
         showToast("Erro ao abrir câmera", "error");
         setIsScanning(false);
+      } finally {
+        isStartingRef.current = false;
+        startTimeoutRef.current = null;
       }
     }, 400);
   };
@@ -255,8 +294,16 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
 
   useEffect(() => {
     return () => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(console.error);
+        const s = scannerRef.current;
+        if (s.getState() > 1) {
+          s.stop().then(() => {
+            if (typeof (s as any).clear === 'function') (s as any).clear();
+          }).catch(() => {});
+        } else {
+          if (typeof (s as any).clear === 'function') (s as any).clear();
+        }
       }
     };
   }, []);
@@ -583,7 +630,7 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
 
   const toggleScannerFullscreen = async () => {
     const nextState = !isScannerFullscreen;
-    if (isScanning) {
+    if (isScanning || isStartingRef.current) {
       await stopScanner();
       setIsScannerFullscreen(nextState);
       startScanner(nextState);
@@ -654,6 +701,143 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
               </AnimatePresence>
             </div>
 
+            <AnimatePresence>
+              {isScanning && (
+                <div className={cn(
+                  isScannerFullscreen 
+                    ? "fixed inset-0 z-50 bg-slate-950 flex items-center justify-center" 
+                    : "flex items-start gap-2 mb-3 max-w-[420px] mx-auto"
+                )}>
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ 
+                      opacity: 1, 
+                      height: isScannerFullscreen ? '100dvh' : 'auto',
+                      width: isScannerFullscreen ? '100vw' : '100%',
+                    }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className={cn(
+                      "overflow-hidden transition-all flex-1",
+                      !isScannerFullscreen && "rounded-xl border-2 border-indigo-500"
+                    )}
+                  >
+                    <div className={cn(
+                      "relative overflow-hidden",
+                      isScannerFullscreen ? "h-full w-full" : "bg-slate-900 h-40 sm:h-48"
+                    )}>
+                      <div id="reader" className="w-full h-full bg-black flex items-center justify-center"></div>
+                      
+                      {/* Viewfinder Overlay */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+                        <motion.div 
+                          animate={{ 
+                            borderColor: scanFlash ? '#22c55e' : 'transparent',
+                            scale: scanFlash ? 1.05 : 1,
+                            backgroundColor: scanFlash ? 'rgba(34, 197, 94, 0.2)' : 'transparent'
+                          }}
+                          className={cn(
+                            "relative overflow-hidden transition-all duration-150 border-2 rounded-xl",
+                            isScannerFullscreen ? "w-[90%] max-w-[600px] aspect-[2/1] border-indigo-500" : "w-full h-full border-none"
+                          )}
+                        >
+                          {/* Scanning Line */}
+                          <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.8)] opacity-70"></div>
+                          
+                          {/* Vertical line for "vertical" scanning vision */}
+                          {isScannerFullscreen && (
+                            <div className="absolute left-1/2 top-0 h-full w-0.5 bg-red-500/20 animate-pulse"></div>
+                          )}
+                        </motion.div>
+                      </div>
+
+                      {/* Fullscreen internal controls */}
+                      {isScannerFullscreen && (
+                        <>
+                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-3">
+                            <button 
+                              onClick={toggleScannerFullscreen}
+                              className="bg-black/40 text-white p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10"
+                            >
+                              <Minimize size={22} />
+                            </button>
+
+                            {hasTorch && (
+                              <button 
+                                onClick={toggleTorch}
+                                className={cn(
+                                  "p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10",
+                                  isTorchOn ? "bg-yellow-500/80 text-white" : "bg-black/40 text-white"
+                                )}
+                              >
+                                <Zap size={22} fill={isTorchOn ? "currentColor" : "none"} />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="absolute top-4 right-4 z-20">
+                            <button 
+                              onClick={stopScanner}
+                              className="bg-red-500/90 text-white p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10 shadow-lg"
+                            >
+                              <X size={22} />
+                            </button>
+                          </div>
+
+                          {/* Zoom Slider */}
+                          {zoomRange.max > zoomRange.min && (
+                            <div className="absolute left-1/2 -translate-x-1/2 bottom-12 w-[60%] max-w-[240px] z-20 bg-black/50 backdrop-blur-lg px-4 py-3 rounded-2xl border border-white/10 flex flex-col gap-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-white/50 font-black tracking-widest">ZOOM</span>
+                                <span className="text-[10px] text-indigo-400 font-bold">{currentZoom.toFixed(1)}x</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Minus size={14} className="text-white/30" />
+                                <input 
+                                  type="range"
+                                  min={zoomRange.min}
+                                  max={zoomRange.max}
+                                  step={0.1}
+                                  value={currentZoom}
+                                  onChange={(e) => handleZoomChange(Number(e.target.value))}
+                                  className="flex-1 accent-indigo-500 h-1.5 rounded-lg appearance-none bg-white/10 cursor-pointer"
+                                />
+                                <Plus size={14} className="text-white/30" />
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="absolute bottom-5 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-md text-white px-6 py-2.5 rounded-full text-[10px] font-black tracking-[0.3em] flex items-center gap-3 shadow-2xl z-10 uppercase border border-indigo-400/30">
+                            <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                            Escanear Código
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+
+                  {/* External Controls (Compact Mode) */}
+                  {!isScannerFullscreen && (
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <button 
+                        onClick={toggleScannerFullscreen}
+                        className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 p-3 rounded-xl border border-slate-200 dark:border-slate-700 active:scale-90 transition-all shadow-sm hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600"
+                        title="Tela cheia"
+                      >
+                        <Maximize size={18} />
+                      </button>
+                      <button 
+                        onClick={stopScanner}
+                        className="bg-red-50 text-red-600 p-3 rounded-xl border border-red-100 dark:bg-red-900/20 dark:border-red-900/30 dark:text-red-400 active:scale-90 transition-all shadow-sm hover:bg-red-100 dark:hover:bg-red-900/40"
+                        title="Fechar câmera"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </AnimatePresence>
+
             <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-row">
               <button 
                 onClick={() => isScanning ? stopScanner() : startScanner()}
@@ -694,128 +878,6 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
             </button>
           </header>
 
-          <AnimatePresence>
-            {isScanning && (
-              <motion.div 
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ 
-                  opacity: 1, 
-                  height: isScannerFullscreen ? '100vh' : 'auto',
-                  position: isScannerFullscreen ? 'fixed' : 'relative',
-                  top: isScannerFullscreen ? 0 : 'auto',
-                  left: isScannerFullscreen ? 0 : 'auto',
-                  width: isScannerFullscreen ? '100vw' : '100%',
-                  zIndex: isScannerFullscreen ? 50 : 0
-                }}
-                exit={{ opacity: 0, height: 0 }}
-                className={`${isScannerFullscreen ? 'bg-slate-950 p-0' : 'overflow-hidden border-b border-slate-200 dark:border-slate-800'}`}
-              >
-                <div className={`${isScannerFullscreen ? 'h-[100dvh] w-screen rounded-none flex items-center justify-center' : 'bg-slate-900 h-44 sm:h-56'} overflow-hidden relative shadow-inner`}>
-                  <div id="reader" className="w-full h-full bg-black flex items-center justify-center"></div>
-                  
-                  {/* Viewfinder Overlay - Thinner for Barcodes */}
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
-                    <motion.div 
-                      animate={{ 
-                        borderColor: scanFlash ? '#22c55e' : '#6366f1',
-                        scale: scanFlash ? 1.05 : 1,
-                        filter: scanFlash ? 'brightness(1.2)' : 'brightness(1)'
-                      }}
-                      className={cn(
-                        "border-2 rounded-xl relative overflow-hidden transition-all duration-150 shadow-[0_0_0_2000px_rgba(0,0,0,0.6)]",
-                        isScannerFullscreen ? "w-[75%] max-w-[400px] aspect-[3/4]" : "w-[90%] max-w-[600px] aspect-[4/1]"
-                      )}
-                    >
-                      <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,1)]"></div>
-                      
-                      {/* Vertical line for "vertical" scanning vision */}
-                      {isScannerFullscreen && (
-                        <div className="absolute left-1/2 top-0 h-full w-0.5 bg-red-500/30 animate-pulse"></div>
-                      )}
-                      
-                      {/* Success semi-transparent overlay */}
-                      <AnimatePresence>
-                        {scanFlash && (
-                          <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 0.4 }}
-                            exit={{ opacity: 0 }}
-                            className="absolute inset-0 bg-green-500"
-                          />
-                        )}
-                      </AnimatePresence>
-
-                      {/* Corner Accents - Smaller */}
-                      <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white"></div>
-                      <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white"></div>
-                      <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white"></div>
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white"></div>
-                    </motion.div>
-                  </div>
-
-                  {/* Controls */}
-                  <div className="absolute top-4 left-4 z-20 flex flex-col gap-3 scale-90">
-                    <button 
-                      onClick={toggleScannerFullscreen}
-                      className="bg-black/20 text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-black/40"
-                      title={isScannerFullscreen ? "Sair da tela cheia" : "Tela cheia"}
-                    >
-                      {isScannerFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-                    </button>
-
-                    {hasTorch && (
-                      <button 
-                        onClick={toggleTorch}
-                        className={`${isTorchOn ? 'bg-yellow-500/80' : 'bg-black/20'} text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:opacity-80`}
-                        title={isTorchOn ? "Desligar lanterna" : "Ligar lanterna"}
-                      >
-                        <Zap size={18} fill={isTorchOn ? "currentColor" : "none"} />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="absolute top-4 right-4 z-20 scale-90">
-                    <button 
-                      onClick={stopScanner}
-                      className="bg-red-500/80 text-white p-2.5 rounded-xl backdrop-blur-md active:scale-90 transition-all border border-white/10 hover:bg-red-600"
-                      title="Fechar camera"
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-
-                  {/* Zoom Slider - Simplified and smaller */}
-                  {zoomRange.max > zoomRange.min && (
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-12 w-[50%] max-w-[200px] z-20 bg-black/40 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 flex flex-col gap-1.5 scale-90">
-                      <div className="flex justify-between items-center px-1">
-                        <span className="text-[9px] text-white/60 font-bold">ZOOM</span>
-                        <span className="text-[9px] text-indigo-400 font-bold">{currentZoom.toFixed(1)}x</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Minus size={12} className="text-white/40" />
-                        <input 
-                          type="range"
-                          min={zoomRange.min}
-                          max={zoomRange.max}
-                          step={0.1}
-                          value={currentZoom}
-                          onChange={(e) => handleZoomChange(Number(e.target.value))}
-                          className="flex-1 accent-indigo-500 h-1 rounded-lg appearance-none cursor-pointer bg-white/10"
-                        />
-                        <Plus size={12} className="text-white/40" />
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/30 backdrop-blur-md text-white px-4 py-1.5 rounded-full text-[8px] sm:text-[10px] font-black tracking-[0.2em] flex items-center gap-2 shadow-xl border border-white/5 z-10 uppercase">
-                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping"></div>
-                    Alinhe o código de barras
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4 custom-scrollbar">
             <AnimatePresence initial={false}>
               {cart.length === 0 ? (
