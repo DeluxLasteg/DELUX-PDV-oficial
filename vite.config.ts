@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
         }
       })
     ],
+    base: '/DELUX-PDV-oficial/'
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
