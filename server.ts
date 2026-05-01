@@ -11,10 +11,10 @@ async function startServer() {
   const PORT = 3000;
 
   // Custom MIME type handling just in case
-  express.static.mime.define({
-    'text/javascript': ['js', 'mjs', 'ts', 'tsx'],
-    'application/manifest+json': ['webmanifest', 'json']
-  });
+  // express.static.mime.define({
+  //   'text/javascript': ['js', 'mjs', 'ts', 'tsx'],
+  //   'application/manifest+json': ['webmanifest', 'json']
+  // });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
