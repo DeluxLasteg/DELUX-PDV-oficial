@@ -1,0 +1,17 @@
+{
+  "name": "DELUX PDV",
+  "short_name": "DELUX",
+  "description": "Sistema de Gestão de Vendas e Controle de Estoque",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3144/3144456.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

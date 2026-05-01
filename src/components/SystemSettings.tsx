@@ -6,15 +6,18 @@
 import React from 'react';
 import { SystemConfig } from '../types';
 import { useToast } from './ToastContext';
-import { Settings, Save, RefreshCcw, Image as ImageIcon, Type, Info, ShieldAlert, Key, Sun, Moon, Printer } from 'lucide-react';
+import { Settings, Save, RefreshCcw, Image as ImageIcon, Type, Info, ShieldAlert, Key, Sun, Moon, Printer, Download, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface SystemSettingsProps {
   config: SystemConfig;
   setConfig: React.Dispatch<React.SetStateAction<SystemConfig>>;
+  onInstallApp: () => void;
+  canInstall: boolean;
+  isInstalled: boolean;
 }
 
-export default function SystemSettings({ config, setConfig }: SystemSettingsProps) {
+export default function SystemSettings({ config, setConfig, onInstallApp, canInstall, isInstalled }: SystemSettingsProps) {
   const { showToast } = useToast();
   const [selectedTheme, setSelectedTheme] = React.useState<'light' | 'dark'>(config.theme || 'light');
   const [selectedPrinterWidth, setSelectedPrinterWidth] = React.useState<'58mm' | '80mm' | 'A4'>(config.printerWidth || '80mm');
@@ -329,6 +332,64 @@ export default function SystemSettings({ config, setConfig }: SystemSettingsProp
                       </label>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-6 pt-8 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 mb-2">
+                  <Smartphone className="text-indigo-600" size={20} />
+                  <h3 className="text-lg font-black text-slate-800 dark:text-white">Instalação do Aplicativo (PWA)</h3>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="space-y-1 text-center md:text-left">
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                        {isInstalled ? "Aplicativo Instalado" : "Disponível para Instalação"}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
+                        Instale o DELUX PDV na sua tela inicial para uma experiência mais fluida, rápida e acesso offline.
+                      </p>
+                    </div>
+
+                    {isInstalled ? (
+                      <div className="flex items-center gap-2 text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-6 py-3 rounded-2xl font-bold border border-emerald-100 dark:border-emerald-900/30">
+                        <ShieldAlert size={20} />
+                        Instalado com Sucesso
+                      </div>
+                    ) : canInstall ? (
+                      <button 
+                        type="button"
+                        onClick={onInstallApp}
+                        className="bg-indigo-600 text-white px-8 py-3 rounded-2xl font-bold hover:bg-indigo-500 shadow-lg shadow-indigo-600/20 transition-all active:scale-95 flex items-center gap-2"
+                      >
+                        <Download size={20} />
+                        Instalar Agora
+                      </button>
+                    ) : (
+                      <div className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-800/50 px-6 py-3 rounded-2xl border border-slate-200 dark:border-slate-800 italic">
+                        Instalação disponível no Chrome/Edge/Safari
+                      </div>
+                    )}
+                  </div>
+                  
+                  {isInstalled && (
+                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+                      <details className="cursor-pointer group">
+                        <summary className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-2 hover:text-indigo-500 transition-colors">
+                          <Info size={12} /> Como desinstalar?
+                        </summary>
+                        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800">
+                          <p className="mb-2 uppercase font-black text-[9px] tracking-wider text-slate-400">Instruções:</p>
+                          <ul className="list-disc pl-4 space-y-1">
+                            <li><strong>Chrome (PC):</strong> Clique nos três pontos (⋮) no canto superior direito e selecione "Desinstalar DELUX PDV".</li>
+                            <li><strong>Android:</strong> Mantenha o ícone pressionado na tela inicial e arraste para "Desinstalar" ou "Remover".</li>
+                            <li><strong>Safari (iOS):</strong> Mantenha o ícone pressionado e toque em "Apagar Marcador" ou "Remover App".</li>
+                          </ul>
+                        </div>
+                      </details>
+                    </div>
+                  )}
                 </div>
               </div>
 

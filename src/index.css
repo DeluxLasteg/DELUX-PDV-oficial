@@ -18,9 +18,11 @@
 
   body {
     @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-50 transition-colors duration-300;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  #reader video {
+  #reader video, #reader-inventory video {
     width: 100% !important;
     height: 100% !important;
     object-fit: cover !important;
@@ -28,16 +30,18 @@
   }
 
   /* Remove default white scanner corners and region styling from Html5Qrcode library */
-  #reader__scan_region {
+  #reader__scan_region, #reader-inventory__scan_region {
     border: none !important;
   }
   
   #reader__scan_region > div,
-  #reader__scan_region svg {
+  #reader-inventory__scan_region > div,
+  #reader__scan_region svg,
+  #reader-inventory__scan_region svg {
     display: none !important;
   }
   
-  #reader__dashboard {
+  #reader__dashboard, #reader-inventory__dashboard {
     display: none !important;
   }
   

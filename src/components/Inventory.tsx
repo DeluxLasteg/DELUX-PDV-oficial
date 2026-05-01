@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, User } from '../types';
 import { formatCurrency, cn } from '../lib/utils';
 import { useToast } from './ToastContext';
@@ -24,9 +24,15 @@ import {
   TableProperties,
   Monitor,
   ChevronDown,
-  GripVertical
+  GripVertical,
+  Camera,
+  Maximize,
+  Minimize,
+  Zap,
+  Minus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 interface InventoryProps {
   products: Product[];
@@ -47,6 +53,20 @@ export default function Inventory({ products, setProducts, user }: InventoryProp
     return (localStorage.getItem('dlx_inv_view') as ViewMode) || 'large';
   });
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isScannerFullscreen, setIsScannerFullscreen] = useState(false);
+  const [scanFlash, setScanFlash] = useState(false);
+  const [zoomRange, setZoomRange] = useState({ min: 1, max: 1 });
+  const [currentZoom, setCurrentZoom] = useState(1);
+  const [hasTorch, setHasTorch] = useState(false);
+  const [isTorchOn, setIsTorchOn] = useState(false);
+  const [manualBarcode, setManualBarcode] = useState('');
+  
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const startTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isStartingRef = useRef(false);
+  const lastScannedCode = useRef<string | null>(null);
+  const lastScannedTime = useRef<number>(0);
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
@@ -63,9 +83,272 @@ export default function Inventory({ products, setProducts, user }: InventoryProp
     );
   }, [searchTerm, products]);
 
+  const playBeep = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); 
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.15);
+    } catch (err) {
+      console.error("Erro ao tocar beep:", err);
+    }
+  };
+
+  const stopScanner = async () => {
+    if (startTimeoutRef.current) {
+      clearTimeout(startTimeoutRef.current);
+      startTimeoutRef.current = null;
+    }
+
+    if (scannerRef.current) {
+      try {
+        const state = scannerRef.current.getState();
+        if (state > 1) {
+          await scannerRef.current.stop();
+        }
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        const isBenign = 
+          msg.includes("scanner is not running") || 
+          msg.includes("not running") ||
+          msg.includes("removeChild") ||
+          msg.includes("interrupted") ||
+          msg.includes("media was removed") ||
+          msg.includes("The play() request was interrupted");
+          
+        if (!isBenign) {
+          console.error("Erro ao parar scanner:", err);
+        }
+      }
+      
+      try {
+        if (typeof (scannerRef.current as any).clear === 'function') {
+          await (scannerRef.current as any).clear();
+        }
+      } catch (e) {}
+      
+      scannerRef.current = null;
+    }
+
+    setIsScanning(false);
+    isStartingRef.current = false;
+    setIsScannerFullscreen(false);
+    lastScannedCode.current = null;
+    setScanFlash(false);
+    setZoomRange({ min: 1, max: 1 });
+    setCurrentZoom(1);
+    setHasTorch(false);
+    setIsTorchOn(false);
+  };
+
+  const startScanner = async (fullscreenOverride?: boolean) => {
+    if (isStartingRef.current || (scannerRef.current && scannerRef.current.getState() > 1)) return;
+
+    const isFull = fullscreenOverride !== undefined ? fullscreenOverride : isScannerFullscreen;
+    setIsScanning(true);
+    isStartingRef.current = true;
+    lastScannedCode.current = null;
+    lastScannedTime.current = 0;
+    setScanFlash(false);
+    setZoomRange({ min: 1, max: 1 });
+    setCurrentZoom(1);
+    setHasTorch(false);
+    setIsTorchOn(false);
+    
+    if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+    
+    startTimeoutRef.current = setTimeout(async () => {
+      if (isStartingRef.current === false) return;
+
+      try {
+        const element = document.getElementById("reader-inventory");
+        if (!element) {
+          isStartingRef.current = false;
+          return;
+        }
+
+        const scanner = new Html5Qrcode("reader-inventory");
+        scannerRef.current = scanner;
+        
+        const config = {
+          fps: 30,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            if (isFull) {
+              const width = Math.max(50, Math.floor(viewfinderWidth * 0.9)); 
+              const height = Math.max(50, Math.floor(viewfinderHeight * 0.4)); 
+              return { width, height };
+            }
+            const minSize = 50;
+            const width = Math.max(minSize, Math.floor(viewfinderWidth * 0.95)); 
+            const height = Math.max(minSize, Math.floor(Math.min(viewfinderHeight * 0.4, 120))); 
+            return { width, height };
+          },
+          aspectRatio: isFull ? undefined : 2,
+          disableFlip: false,
+          videoConstraints: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
+        };
+
+        await scanner.start(
+          { facingMode: "environment" },
+          config,
+          (decodedText) => {
+            const now = Date.now();
+            if (decodedText === lastScannedCode.current && (now - lastScannedTime.current) < 2500) return;
+
+            lastScannedCode.current = decodedText;
+            lastScannedTime.current = now;
+            
+            playBeep();
+            setScanFlash(true);
+            setTimeout(() => setScanFlash(false), 300);
+            
+            setManualBarcode(decodedText);
+            stopScanner();
+            showToast(`Código ${decodedText} capturado!`, "success");
+          },
+          () => {}
+        );
+
+        if (isStartingRef.current === false) {
+           await scanner.stop().catch(() => {});
+           return;
+        }
+
+        setTimeout(async () => {
+          try {
+            if (scannerRef.current) {
+              const track = (scannerRef.current as any).getRunningTrack();
+              if (track) {
+                const capabilities = track.getCapabilities() as any;
+                if (capabilities.zoom) {
+                  setZoomRange({
+                    min: capabilities.zoom.min || 1,
+                    max: capabilities.zoom.max || 1
+                  });
+                  const initialZoom = Math.min(1.5, capabilities.zoom.max || 1);
+                  if (initialZoom > (capabilities.zoom.min || 1)) {
+                    handleZoomChange(initialZoom);
+                  } else {
+                    setCurrentZoom(capabilities.zoom.min || 1);
+                  }
+                }
+                if (capabilities.torch) setHasTorch(true);
+              }
+            }
+          } catch (err) {
+            console.warn("Camera capabilities not accessible:", err);
+          }
+        }, 1500);
+
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (!msg.includes("play() request") && !msg.includes("interrupted")) {
+          console.error("Erro ao iniciar scanner:", err);
+          showToast("Erro ao abrir câmera", "error");
+        }
+        setIsScanning(false);
+      } finally {
+        isStartingRef.current = false;
+        startTimeoutRef.current = null;
+      }
+    }, 400);
+  };
+
+  const handleZoomChange = async (val: number) => {
+    setCurrentZoom(val);
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.applyVideoConstraints({
+          advanced: [{ zoom: val }] as any
+        });
+      } catch (err) {
+        console.error("Erro ao aplicar zoom:", err);
+      }
+    }
+  };
+
+  const toggleTorch = async () => {
+    if (scannerRef.current) {
+      try {
+        const nextState = !isTorchOn;
+        await scannerRef.current.applyVideoConstraints({
+          advanced: [{ torch: nextState }] as any
+        });
+        setIsTorchOn(nextState);
+      } catch (err) {
+        console.error("Erro ao alternar lanterna:", err);
+      }
+    }
+  };
+
+  const toggleScannerFullscreen = async () => {
+    const nextState = !isScannerFullscreen;
+    if (isScanning || isStartingRef.current) {
+      await stopScanner();
+      setTimeout(() => {
+        setIsScannerFullscreen(nextState);
+        startScanner(nextState);
+      }, 50);
+    } else {
+      setIsScannerFullscreen(nextState);
+    }
+  };
+
+  useEffect(() => {
+    if (isModalOpen && editingProduct) {
+      setManualBarcode(editingProduct.barcode || '');
+    } else if (isModalOpen && !editingProduct) {
+      setManualBarcode('');
+    }
+  }, [isModalOpen, editingProduct]);
+
+  useEffect(() => {
+    return () => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+      if (scannerRef.current) {
+        const s = scannerRef.current;
+        if (s.getState() > 1) {
+          s.stop().then(() => {
+            if (typeof (s as any).clear === 'function') (s as any).clear();
+          }).catch(() => {});
+        } else {
+          if (typeof (s as any).clear === 'function') (s as any).clear();
+        }
+      }
+    };
+  }, []);
+
   const handleSave = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const barcode = formData.get('barcode') as string;
+
+    // Duplicate check logic
+    if (barcode) {
+      const isDuplicate = products.some(p => p.barcode === barcode && p.id !== (editingProduct?.id || -1));
+      if (isDuplicate) {
+        showToast('Erro: Este código de barras já está cadastrado!', 'error');
+        return;
+      }
+    }
     
     const productData: Product = {
       id: editingProduct ? editingProduct.id : Date.now(),
@@ -467,14 +750,99 @@ export default function Inventory({ products, setProducts, user }: InventoryProp
                   />
                 </div>
                 
-                <div>
+                <div className="md:col-span-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Código de Barras</label>
-                  <input 
-                    type="text" 
-                    name="barcode" 
-                    defaultValue={editingProduct?.barcode} 
-                    className="w-full bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
-                  />
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      name="barcode" 
+                      value={manualBarcode}
+                      onChange={(e) => setManualBarcode(e.target.value)}
+                      className="flex-1 bg-slate-50 dark:bg-slate-950 border-none p-4 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-medium dark:text-white" 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => isScanning ? stopScanner() : startScanner()}
+                      className={cn(
+                        "p-4 rounded-2xl transition-all active:scale-90 flex items-center justify-center gap-2 font-bold",
+                        isScanning 
+                          ? "bg-red-500 text-white shadow-lg shadow-red-500/20" 
+                          : "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                      )}
+                      title={isScanning ? "Fechar Câmera" : "Escanear Código"}
+                    >
+                      {isScanning ? <X size={20} /> : <Camera size={20} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <AnimatePresence>
+                    {isScanning && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className={cn(
+                          "overflow-hidden transition-all relative flex flex-col items-center gap-4 mb-4",
+                          isScannerFullscreen ? "fixed inset-0 z-[300] bg-slate-950 p-4 justify-center" : "w-full"
+                        )}
+                      >
+                        <div className={cn(
+                          "relative overflow-hidden bg-slate-900 shadow-2xl",
+                          isScannerFullscreen 
+                            ? "rounded-3xl border-2 border-white/20 aspect-[3/4] md:aspect-[4/3] max-h-[70vh] w-full max-w-md bg-black" 
+                            : "rounded-2xl border-2 border-indigo-500 aspect-video w-full"
+                        )}>
+                          <div id="reader-inventory" className="w-full h-full bg-black flex items-center justify-center scale-[1.01]"></div>
+                          
+                          <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10 p-4">
+                            <motion.div 
+                              animate={{ 
+                                borderColor: scanFlash ? '#22c55e' : 'transparent',
+                                backgroundColor: scanFlash ? 'rgba(34, 197, 94, 0.2)' : 'transparent'
+                              }}
+                              className={cn(
+                                "relative overflow-hidden transition-all duration-150 border-2 rounded-xl w-full h-full",
+                                isScannerFullscreen ? "max-w-[90%] max-h-[40%] border-white/30" : "max-w-[95%] max-h-[50%] border-none"
+                              )}
+                            >
+                              <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.8)] opacity-70"></div>
+                            </motion.div>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-3 w-full justify-center">
+                          <button 
+                            type="button"
+                            onClick={toggleScannerFullscreen}
+                            className="bg-white/10 text-white p-4 rounded-2xl border border-white/20 backdrop-blur-md"
+                          >
+                            {isScannerFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                          </button>
+                          {hasTorch && (
+                            <button 
+                              type="button"
+                              onClick={toggleTorch}
+                              className={cn(
+                                "p-4 rounded-2xl transition-all border shadow-lg",
+                                isTorchOn ? "bg-yellow-500 text-white border-yellow-400" : "bg-white/10 text-white border-white/20"
+                              )}
+                            >
+                              <Zap size={20} fill={isTorchOn ? "currentColor" : "none"} />
+                            </button>
+                          )}
+                          <button 
+                            type="button"
+                            onClick={stopScanner}
+                            className="bg-red-500 text-white p-4 rounded-2xl"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
                 
                 <div>

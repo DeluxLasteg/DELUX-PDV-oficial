@@ -119,6 +119,7 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
         const state = scannerRef.current.getState();
         // 1: IDLE/STOPPED, 2: SCANNING, 3: PAISED
         if (state > 1) {
+          // Await to ensure camera is released before we hide the div (triggered by setIsScanning)
           await scannerRef.current.stop();
         }
       } catch (err: any) {
@@ -129,7 +130,8 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           msg.includes("not running") ||
           msg.includes("removeChild") ||
           msg.includes("interrupted") ||
-          msg.includes("media was removed");
+          msg.includes("media was removed") ||
+          msg.includes("The play() request was interrupted");
           
         if (!isBenign) {
           console.error("Erro ao parar scanner:", err);
@@ -146,6 +148,7 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
       scannerRef.current = null;
     }
 
+    // Só mudamos o estado de UI depois de tentar parar o hardware
     setIsScanning(false);
     isStartingRef.current = false;
     setIsScannerFullscreen(false);
@@ -159,7 +162,7 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
 
   const startScanner = async (fullscreenOverride?: boolean) => {
     // Evita múltiplos inícios simultâneos
-    if (isStartingRef.current || scannerRef.current) return;
+    if (isStartingRef.current || (scannerRef.current && scannerRef.current.getState() > 1)) return;
 
     const isFull = fullscreenOverride !== undefined ? fullscreenOverride : isScannerFullscreen;
     setIsScanning(true);
@@ -178,6 +181,9 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
     
     // Timeout para garantir que o DOM (div #reader) esteja pronto após setIsScanning(true)
     startTimeoutRef.current = setTimeout(async () => {
+      // Se paramos o scanner enquanto o timeout corria
+      if (isStartingRef.current === false) return;
+
       try {
         const element = document.getElementById("reader");
         if (!element) {
@@ -191,27 +197,21 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
         const config = {
           fps: 30,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            // Responsive qrbox based on container size and mode
             if (isFull) {
               const width = Math.max(50, Math.floor(viewfinderWidth * 0.9)); 
-              const height = Math.max(50, Math.floor(viewfinderHeight * 0.45)); 
+              const height = Math.max(50, Math.floor(viewfinderHeight * 0.4)); 
               return { width, height };
             }
-            // Small view mode: Ensure box is strictly smaller than viewfinder
-            // and at least 50px as required by the library
+            
+            // Inline mode: smaller height but wider for barcodes
             const minSize = 50;
-            const horizontalMargin = 10;
-            const verticalMargin = 10;
-            
             const width = Math.max(minSize, Math.floor(viewfinderWidth * 0.95)); 
-            const height = Math.max(minSize, Math.floor(Math.min(viewfinderHeight * 0.5, 100))); 
+            const height = Math.max(minSize, Math.floor(Math.min(viewfinderHeight * 0.4, 120))); 
             
-            // Final safety check to prevent "qrbox greater than root" error
-            const safeWidth = Math.max(minSize, Math.min(width, viewfinderWidth - horizontalMargin));
-            const safeHeight = Math.max(minSize, Math.min(height, viewfinderHeight - verticalMargin));
-            
-            return { width: safeWidth, height: safeHeight };
+            return { width, height };
           },
-          aspectRatio: isFull ? 0.75 : undefined, // Allow the camera to fill the small container naturally
+          aspectRatio: isFull ? undefined : 2, // Prefer wider aspect for inline barcodes
           disableFlip: false,
           videoConstraints: {
             facingMode: "environment",
@@ -251,6 +251,12 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           () => {}
         );
 
+        // Success - double check we shouldn't have stopped
+        if (isStartingRef.current === false) {
+           await scanner.stop().catch(() => {});
+           return;
+        }
+
         setTimeout(async () => {
           try {
             if (scannerRef.current) {
@@ -277,9 +283,12 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
           }
         }, 1500);
 
-      } catch (err) {
-        console.error("Erro ao iniciar scanner:", err);
-        showToast("Erro ao abrir câmera", "error");
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        if (!msg.includes("play() request") && !msg.includes("interrupted")) {
+          console.error("Erro ao iniciar scanner:", err);
+          showToast("Erro ao abrir câmera", "error");
+        }
         setIsScanning(false);
       } finally {
         isStartingRef.current = false;
@@ -631,9 +640,15 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
   const toggleScannerFullscreen = async () => {
     const nextState = !isScannerFullscreen;
     if (isScanning || isStartingRef.current) {
+      // Crucially, wait for the previous stop to complete before starting again
+      // to avoid 'media was removed' race conditions
       await stopScanner();
-      setIsScannerFullscreen(nextState);
-      startScanner(nextState);
+      
+      // Small pause to allow DOM to react
+      setTimeout(() => {
+        setIsScannerFullscreen(nextState);
+        startScanner(nextState);
+      }, 50);
     } else {
       setIsScannerFullscreen(nextState);
     }
@@ -705,135 +720,126 @@ export default function PDV({ products, setProducts, clients, sales, setSales, u
               {isScanning && (
                 <div className={cn(
                   isScannerFullscreen 
-                    ? "fixed inset-0 z-50 bg-slate-950 flex items-center justify-center" 
-                    : "flex items-start gap-2 mb-3 max-w-[420px] mx-auto"
+                    ? "fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-4" 
+                    : "flex flex-col items-center gap-3 mb-6 w-full max-w-2xl mx-auto"
                 )}>
                   <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
+                    initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ 
                       opacity: 1, 
-                      height: isScannerFullscreen ? '100dvh' : 'auto',
-                      width: isScannerFullscreen ? '100vw' : '100%',
+                      scale: 1,
+                      height: isScannerFullscreen ? 'auto' : 'auto',
+                      width: '100%',
                     }}
-                    exit={{ opacity: 0, height: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
                     className={cn(
-                      "overflow-hidden transition-all flex-1",
-                      !isScannerFullscreen && "rounded-xl border-2 border-indigo-500"
+                      "overflow-hidden transition-all relative shadow-2xl",
+                      isScannerFullscreen 
+                        ? "rounded-3xl border-2 border-white/20 aspect-[3/4] md:aspect-[4/3] max-h-[70vh] w-full max-w-md overflow-hidden bg-black" 
+                        : "rounded-2xl border-2 border-indigo-500 bg-slate-900 aspect-video overflow-hidden"
                     )}
                   >
-                    <div className={cn(
-                      "relative overflow-hidden",
-                      isScannerFullscreen ? "h-full w-full" : "bg-slate-900 h-40 sm:h-48"
-                    )}>
-                      <div id="reader" className="w-full h-full bg-black flex items-center justify-center"></div>
+                    <div className="relative w-full h-full">
+                      <div id="reader" className="w-full h-full bg-black flex items-center justify-center scale-[1.01]"></div>
                       
                       {/* Viewfinder Overlay */}
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10">
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10 p-4">
                         <motion.div 
                           animate={{ 
                             borderColor: scanFlash ? '#22c55e' : 'transparent',
-                            scale: scanFlash ? 1.05 : 1,
                             backgroundColor: scanFlash ? 'rgba(34, 197, 94, 0.2)' : 'transparent'
                           }}
                           className={cn(
-                            "relative overflow-hidden transition-all duration-150 border-2 rounded-xl",
-                            isScannerFullscreen ? "w-[90%] max-w-[600px] aspect-[2/1] border-indigo-500" : "w-full h-full border-none"
+                            "relative overflow-hidden transition-all duration-150 border-2 rounded-xl w-full h-full",
+                            isScannerFullscreen ? "max-w-[90%] max-h-[40%] border-white/30" : "max-w-[95%] max-h-[50%] border-none"
                           )}
                         >
                           {/* Scanning Line */}
                           <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.8)] opacity-70"></div>
                           
-                          {/* Vertical line for "vertical" scanning vision */}
+                          {/* Corner Decorations */}
                           {isScannerFullscreen && (
-                            <div className="absolute left-1/2 top-0 h-full w-0.5 bg-red-500/20 animate-pulse"></div>
+                            <>
+                              <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-indigo-500 rounded-tl-lg"></div>
+                              <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-indigo-500 rounded-tr-lg"></div>
+                              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-indigo-500 rounded-bl-lg"></div>
+                              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-indigo-500 rounded-br-lg"></div>
+                            </>
                           )}
                         </motion.div>
                       </div>
 
-                      {/* Fullscreen internal controls */}
-                      {isScannerFullscreen && (
-                        <>
-                          <div className="absolute top-4 left-4 z-20 flex flex-col gap-3">
-                            <button 
-                              onClick={toggleScannerFullscreen}
-                              className="bg-black/40 text-white p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10"
-                            >
-                              <Minimize size={22} />
-                            </button>
-
-                            {hasTorch && (
-                              <button 
-                                onClick={toggleTorch}
-                                className={cn(
-                                  "p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10",
-                                  isTorchOn ? "bg-yellow-500/80 text-white" : "bg-black/40 text-white"
-                                )}
-                              >
-                                <Zap size={22} fill={isTorchOn ? "currentColor" : "none"} />
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="absolute top-4 right-4 z-20">
-                            <button 
-                              onClick={stopScanner}
-                              className="bg-red-500/90 text-white p-3 rounded-2xl backdrop-blur-md active:scale-90 transition-all border border-white/10 shadow-lg"
-                            >
-                              <X size={22} />
-                            </button>
-                          </div>
-
-                          {/* Zoom Slider */}
-                          {zoomRange.max > zoomRange.min && (
-                            <div className="absolute left-1/2 -translate-x-1/2 bottom-12 w-[60%] max-w-[240px] z-20 bg-black/50 backdrop-blur-lg px-4 py-3 rounded-2xl border border-white/10 flex flex-col gap-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] text-white/50 font-black tracking-widest">ZOOM</span>
-                                <span className="text-[10px] text-indigo-400 font-bold">{currentZoom.toFixed(1)}x</span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <Minus size={14} className="text-white/30" />
-                                <input 
-                                  type="range"
-                                  min={zoomRange.min}
-                                  max={zoomRange.max}
-                                  step={0.1}
-                                  value={currentZoom}
-                                  onChange={(e) => handleZoomChange(Number(e.target.value))}
-                                  className="flex-1 accent-indigo-500 h-1.5 rounded-lg appearance-none bg-white/10 cursor-pointer"
-                                />
-                                <Plus size={14} className="text-white/30" />
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="absolute bottom-5 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-md text-white px-6 py-2.5 rounded-full text-[10px] font-black tracking-[0.3em] flex items-center gap-3 shadow-2xl z-10 uppercase border border-indigo-400/30">
-                            <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
-                            Escanear Código
-                          </div>
-                        </>
-                      )}
+                      {/* Status indicator */}
+                      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 z-20 flex items-center gap-2">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                        <span className="text-[10px] font-black text-white/80 tracking-widest uppercase">Câmera Ativa</span>
+                      </div>
                     </div>
                   </motion.div>
 
-                  {/* External Controls (Compact Mode) */}
-                  {!isScannerFullscreen && (
-                    <div className="flex flex-col gap-2 shrink-0">
+                  {/* Responsive Bottom Controls */}
+                  <div className={cn(
+                    "flex flex-wrap items-center justify-center gap-3 w-full",
+                    isScannerFullscreen ? "mt-8" : "mt-2"
+                  )}>
+                    <button 
+                      onClick={toggleScannerFullscreen}
+                      className={cn(
+                        "flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all active:scale-95 border shadow-lg",
+                        isScannerFullscreen 
+                          ? "bg-white/10 text-white border-white/20 hover:bg-white/20" 
+                          : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      )}
+                    >
+                      {isScannerFullscreen ? (
+                        <><Minimize size={20} /> <span className="text-sm">Reduzir</span></>
+                      ) : (
+                        <><Maximize size={20} /> <span className="text-sm">Expandir</span></>
+                      )}
+                    </button>
+
+                    {hasTorch && (
                       <button 
-                        onClick={toggleScannerFullscreen}
-                        className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 p-3 rounded-xl border border-slate-200 dark:border-slate-700 active:scale-90 transition-all shadow-sm hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600"
-                        title="Tela cheia"
+                        onClick={toggleTorch}
+                        className={cn(
+                          "p-4 rounded-2xl transition-all active:scale-95 border shadow-lg",
+                          isTorchOn 
+                            ? "bg-yellow-500 text-white border-yellow-400" 
+                            : (isScannerFullscreen ? "bg-white/10 text-white border-white/20" : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700")
+                        )}
                       >
-                        <Maximize size={18} />
+                        <Zap size={22} fill={isTorchOn ? "currentColor" : "none"} />
                       </button>
-                      <button 
-                        onClick={stopScanner}
-                        className="bg-red-50 text-red-600 p-3 rounded-xl border border-red-100 dark:bg-red-900/20 dark:border-red-900/30 dark:text-red-400 active:scale-90 transition-all shadow-sm hover:bg-red-100 dark:hover:bg-red-900/40"
-                        title="Fechar câmera"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-                  )}
+                    )}
+
+                    {/* Zoom Slider for Responsive Control - Only visible when scanning and has zoom capability */}
+                    {zoomRange.max > zoomRange.min && (
+                      <div className={cn(
+                        "flex items-center gap-3 px-4 py-2 rounded-2xl border min-w-[150px] shadow-lg",
+                        isScannerFullscreen ? "bg-white/5 border-white/10" : "bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-800"
+                      )}>
+                        <Minus size={14} className={isScannerFullscreen ? "text-white/30" : "text-slate-400"} />
+                        <input 
+                          type="range"
+                          min={zoomRange.min}
+                          max={zoomRange.max}
+                          step={0.1}
+                          value={currentZoom}
+                          onChange={(e) => handleZoomChange(Number(e.target.value))}
+                          className="flex-1 accent-indigo-500 h-1.5 rounded-lg appearance-none bg-indigo-200/20 cursor-pointer"
+                        />
+                        <Plus size={14} className={isScannerFullscreen ? "text-white/30" : "text-slate-400"} />
+                      </div>
+                    )}
+
+                    <button 
+                      onClick={stopScanner}
+                      className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-2xl font-bold hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-red-500/20"
+                    >
+                      <X size={20} />
+                      <span className="text-sm uppercase">Fechar</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </AnimatePresence>
