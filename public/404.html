@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>DELUX PDV</title>
+    <script type="text/javascript">
+      // Redireciona para o index.html preservando a rota
+      var pathSegmentCount = 1; // Ajuste conforme a profundidade do base path
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentCount).join('/') + '/?p=/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentCount).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    </script>
+  </head>
+  <body>
+  </body>
+</html>
