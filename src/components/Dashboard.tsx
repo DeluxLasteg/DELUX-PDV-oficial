@@ -144,8 +144,8 @@ export default function Dashboard({ products, sales, user, theme = 'light' }: Da
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Fluxo de Vendas (7 dias)</h3>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[300px] w-full min-h-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorVendas" x1="0" y1="0" x2="0" y2="1">
@@ -209,9 +209,9 @@ export default function Dashboard({ products, sales, user, theme = 'light' }: Da
 
         <section className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col transition-colors" aria-label="Status do estoque">
           <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">Status do Estoque</h3>
-          <div className="flex-1 flex items-center justify-center">
-            <div className="h-[250px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+          <div className="flex-1 flex items-center justify-center min-h-0">
+            <div className="h-[250px] w-full min-h-0">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart>
                   <Pie
                     data={stockData}
